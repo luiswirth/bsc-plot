@@ -69,12 +69,13 @@ def plot_whitney_form(form_func, form_name, filename):
     ax.plot(triangle_vertices[:, 0], triangle_vertices[:, 1], 'k-', linewidth=1.5)
     
     # Add colorbar
-    cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label('Magnitude')
+    #cbar = plt.colorbar(im, ax=ax)
+    #cbar.set_label('Magnitude')
     
-    ax.set_title(f'Whitney 1-form: {form_name}')
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
+    fontsize = 20
+    ax.set_title(f'{form_name}', fontsize=fontsize)
+    ax.set_xlabel('x', fontsize=fontsize)
+    ax.set_ylabel('y', fontsize=fontsize)
     ax.set_aspect('equal')
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
@@ -86,9 +87,9 @@ def plot_whitney_form(form_func, form_name, filename):
 
 def main():
     """Create separate plots for each Whitney 1-form."""
-    plot_whitney_form(whitney_lambda_01, "λ₀₁ = (1-y)dx + xdy", "whitney_lambda_01.png")
-    plot_whitney_form(whitney_lambda_02, "λ₀₂ = ydx + (1-x)dy", "whitney_lambda_02.png")
-    plot_whitney_form(whitney_lambda_12, "λ₁₂ = -ydx + xdy", "whitney_lambda_12.png")
+    plot_whitney_form(whitney_lambda_01, "λ₀₁ = (1-y)dx + xdy", "out/ref_lambda01.png")
+    plot_whitney_form(whitney_lambda_02, "λ₀₂ = ydx + (1-x)dy", "out/ref_lambda02.png")
+    plot_whitney_form(whitney_lambda_12, "λ₁₂ = -ydx + xdy", "out/ref_lambda12.png")
 
 if __name__ == "__main__":
     main()
