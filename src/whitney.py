@@ -116,6 +116,62 @@ def whitney_form(point, vertices, i, j, gradients=None):
     
     return whitney_vector
 
+def evaluate_fe_solution(point, vertices, triangle, coefficients, gradients=None):
+    """Evaluate a finite element solution at a point inside a triangle.
+    
+    Args:
+        point: (x,y) coordinates
+        vertices: global vertex coordinates
+        triangle: indices of the triangle vertices
+        coefficients: dictionary mapping edge (v1,v2) to coefficient value
+        gradients: optional precomputed gradients for the triangle
+        
+    Returns:
+        2D vector [dx_component, dy_component] of the combined vector field
+    """
+    if gradients is None:
+        # Get the triangle vertices
+        tri_vertices = vertices[triangle]
+        gradients = compute_barycentric_gradients(tri_vertices)
+    
+    # Initialize result vector
+    result = np.zeros(2)
+    
+    # Get the triangle vertices
+    tri_vertices = vertices[triangle]
+    
+    # Local edges in the triangle (in CCW order)
+    local_edges = [
+        (0, 1),
+        (1, 2),
+        (2, 0)
+    ]
+    
+    # For each local edge, get its global edge and corresponding coefficient
+    for local_i, local_j in local_edges:
+        # Map to global vertex indices
+        global_i = triangle[local_i]
+        global_j = triangle[local_j]
+        
+        # Sort to match the dictionary key format
+        global_edge = tuple(sorted([global_i, global_j]))
+        
+        # If this edge has a coefficient, add its contribution
+        if global_edge in coefficients:
+            coeff = coefficients[global_edge]
+            
+            # Handle orientation: if the sorted edge reversed the original orientation,
+            # we need to negate the Whitney form
+            edge_orientation = 1
+            if (global_i, global_j) != global_edge:  # If sorting changed the order
+                edge_orientation = -1
+            
+            # Compute Whitney form for this edge and scale by coefficient
+            w_vector = whitney_form(point, tri_vertices, local_i, local_j, gradients)
+            result += coeff * edge_orientation * w_vector
+    
+    return result
+
 # --- Mesh Creation and Handling ---
 
 def create_single_triangle_mesh(vertices):
@@ -178,65 +234,27 @@ def create_simple_mesh():
     
     return vertices, triangles, edges
 
-def compute_whitney_global(point, vertices, triangles, global_edge, triangle_idx=None):
-    """Compute global Whitney form for a specific edge at a point.
+def find_triangle_containing_point(point, vertices, triangles):
+    """Find the triangle containing a given point.
     
     Args:
         point: (x,y) coordinates
         vertices: global vertex coordinates
-        triangles: global triangle indices
-        global_edge: tuple (v1,v2) of global vertex indices defining the edge
-        triangle_idx: index of triangle containing the point (if None, will find it)
+        triangles: triangle indices
         
     Returns:
-        2D vector [dx_component, dy_component] of the Whitney form at the point
-        or zeros if point is not in a triangle containing the edge
+        Index of the triangle containing the point, or None if not found
     """
-    # Sort edge vertices for consistency
-    global_edge = tuple(sorted(global_edge))
-    
-    # Find which triangle the point is in, if not provided
-    if triangle_idx is None:
-        for idx, tri in enumerate(triangles):
-            # Get triangle vertices
-            tri_vertices = vertices[tri]
-            
-            # Check if point is inside this triangle
-            lambdas = compute_barycentric_coordinates(point, tri_vertices)
-            if np.all(lambdas >= -1e-10) and np.all(lambdas <= 1 + 1e-10):
-                triangle_idx = idx
-                break
+    for idx, tri in enumerate(triangles):
+        # Get triangle vertices
+        tri_vertices = vertices[tri]
         
-        if triangle_idx is None:
-            # Point is not in any triangle
-            return np.zeros(2)
+        # Check if point is inside this triangle
+        lambdas = compute_barycentric_coordinates(point, tri_vertices)
+        if np.all(lambdas >= -1e-10) and np.all(lambdas <= 1 + 1e-10):
+            return idx
     
-    # Get global vertex indices of the current triangle
-    global_tri_indices = triangles[triangle_idx]
-    
-    # Check if the global edge is part of this triangle
-    edge_in_triangle = (
-        (global_edge[0] in global_tri_indices and global_edge[1] in global_tri_indices)
-    )
-    
-    if not edge_in_triangle:
-        # Edge is not part of this triangle
-        return np.zeros(2)
-    
-    # Map global indices to local (0,1,2) indices
-    local_indices = {}
-    for local_idx, global_idx in enumerate(global_tri_indices):
-        local_indices[global_idx] = local_idx
-    
-    # Get local indices of the edge vertices
-    local_i = local_indices[global_edge[0]]
-    local_j = local_indices[global_edge[1]]
-    
-    # Get the triangle vertices
-    tri_vertices = vertices[global_tri_indices]
-    
-    # Calculate Whitney form for this triangle
-    return whitney_form(point, tri_vertices, local_i, local_j)
+    return None
 
 # --- Plotting Functions ---
 
@@ -364,6 +382,115 @@ def plot_whitney_form(vertices, triangles, edges, edge, filename, title=None, sh
     print(f"Figure saved as '{filename}'")
     plt.close(fig)
 
+def plot_fe_solution(vertices, triangles, edges, coefficients, filename, title=None, show_labels=True, highlight_edges=None):
+    """Plot a finite element solution represented as a linear combination of Whitney forms.
+    
+    Args:
+        vertices: vertex coordinates
+        triangles: triangle indices
+        edges: mapping from edge (v1,v2) to list of adjacent triangle indices
+        coefficients: dictionary mapping edge (v1,v2) to coefficient value
+        filename: output file name
+        title: optional custom title for the plot
+        show_labels: whether to show vertex labels
+        highlight_edges: optional list of edges to highlight
+    """
+    # Create figure
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Compute combined vector field and magnitude for each triangle
+    max_magnitude = 0  # Track maximum magnitude for colormap normalization
+    
+    # Plot each triangle
+    for t_idx, triangle in enumerate(triangles):
+        tri_vertices = vertices[triangle]
+        
+        # Generate points inside this triangle
+        tri_points = generate_triangle_grid(tri_vertices, 50)
+        x, y = tri_points[:, 0], tri_points[:, 1]
+        triang = Triangulation(x, y)
+        
+        # Pre-compute gradients for efficiency
+        gradients = compute_barycentric_gradients(tri_vertices)
+        
+        # Calculate vector field at each point
+        vectors = np.array([evaluate_fe_solution([xi, yi], vertices, triangle, coefficients, gradients) 
+                          for xi, yi in zip(x, y)])
+        magnitude = np.sqrt(vectors[:, 0]**2 + vectors[:, 1]**2)
+        max_magnitude = max(max_magnitude, np.max(magnitude)) if len(magnitude) > 0 else max_magnitude
+        
+        # Plot magnitude as heatmap using tripcolor with flat shading
+        ax.tripcolor(triang, magnitude, cmap='viridis', shading='flat')
+        
+        # Add arrows inside this triangle
+        quiver_points = generate_triangle_grid(tri_vertices, 10)
+        quiver_vectors = np.array([evaluate_fe_solution([p[0], p[1]], vertices, triangle, coefficients, gradients) 
+                                for p in quiver_points])
+        
+        # Plot vector field
+        plot_vector_field(ax, quiver_points, quiver_vectors, scale=15, width=0.004)
+    
+    # Plot mesh edges
+    for triangle in triangles:
+        tri_vertices = vertices[triangle]
+        # Close the loop
+        tri_vertices = np.vstack([tri_vertices, tri_vertices[0]])
+        ax.plot(tri_vertices[:, 0], tri_vertices[:, 1], 'k-', linewidth=1.0)
+    
+    # Highlight specific edges if requested
+    if highlight_edges:
+        for edge in highlight_edges:
+            edge = tuple(sorted(edge))  # Ensure consistent ordering
+            if edge in edges:
+                edge_vertices = vertices[list(edge)]
+                ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=2.5)
+    
+    # Add coefficient values as edge labels
+    for edge, coeff in coefficients.items():
+        if abs(coeff) > 1e-10:  # Only label non-zero coefficients
+            # Edge midpoint for label placement
+            v1, v2 = edge
+            mid_x = (vertices[v1][0] + vertices[v2][0]) / 2
+            mid_y = (vertices[v1][1] + vertices[v2][1]) / 2
+            
+            # Offset label a bit perpendicular to the edge
+            edge_vec = vertices[v2] - vertices[v1]
+            norm_vec = np.array([-edge_vec[1], edge_vec[0]])
+            norm_vec = 0.05 * norm_vec / np.linalg.norm(norm_vec)
+            
+            ax.text(mid_x + norm_vec[0], mid_y + norm_vec[1], 
+                   f'{coeff:.2f}', fontsize=12, ha='center', va='center',
+                   bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
+    
+    # Add vertex labels if requested
+    if show_labels:
+        for i, (x, y) in enumerate(vertices):
+            ax.text(x, y, f'${i}$', fontsize=14, ha='center', va='center', 
+                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
+    
+    # Set title and labels
+    fontsize = 20
+    if title:
+        ax.set_title(title, fontsize=fontsize)
+    else:
+        ax.set_title('Whitney Form Solution', fontsize=fontsize)
+    
+    ax.set_xlabel('x', fontsize=16)
+    ax.set_ylabel('y', fontsize=16)
+    ax.set_aspect('equal')
+    
+    # Set limits with small margin
+    min_x, min_y = np.min(vertices, axis=0)
+    max_x, max_y = np.max(vertices, axis=0)
+    margin = 0.1 * max(max_x - min_x, max_y - min_y)
+    ax.set_xlim(min_x - margin, max_x + margin)
+    ax.set_ylim(min_y - margin, max_y + margin)
+    
+    plt.tight_layout()
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    print(f"Figure saved as '{filename}'")
+    plt.close(fig)
+
 # --- Main Functions ---
 
 def plot_local_whitneys():
@@ -400,13 +527,92 @@ def plot_global_whitneys():
     plot_whitney_form(vertices, triangles, edges, (0, 2), "out/mesh_phi02.png")
     plot_whitney_form(vertices, triangles, edges, (1, 2), "out/mesh_phi12.png")
 
+def plot_example_solutions():
+    """Plot example finite element solutions."""
+    # Create simple mesh
+    vertices, triangles, edges = create_simple_mesh()
+    
+    # Example 1: Constant vector field pointing to the right
+    coefficients1 = {
+        (0, 1): 1.0,    # Horizontal edge in bottom triangle
+        (0, 2): 0.5,    # Edge from bottom-left to top
+        (1, 2): -0.5,   # Edge from bottom-right to top
+        (0, 3): 0.0,    # Left edge
+        (2, 3): 0.0,    # Upper left edge
+        (1, 4): 0.0,    # Right edge
+        (2, 4): 0.0,    # Upper right edge
+        (0, 5): 0.0,    # Bottom left edge
+        (1, 5): 0.0,    # Bottom right edge
+    }
+    
+    plot_fe_solution(vertices, triangles, edges, coefficients1, 
+                    "out/solution_constant.png", 
+                    title="Constant Vector Field")
+    
+    # Example 2: Rotational vector field
+    coefficients2 = {
+        (0, 1): 0.0,    # Horizontal edge in center triangle
+        (0, 2): 1.0,    # Edge from center-left to top
+        (1, 2): 1.0,    # Edge from center-right to top
+        (0, 3): 1.0,    # Left edge
+        (2, 3): -1.0,   # Upper left edge
+        (1, 4): -1.0,   # Right edge
+        (2, 4): 1.0,    # Upper right edge
+        (0, 5): -1.0,   # Bottom left edge
+        (1, 5): 1.0,    # Bottom right edge
+    }
+    
+    plot_fe_solution(vertices, triangles, edges, coefficients2, 
+                    "out/solution_rotation.png", 
+                    title="Rotational Vector Field")
+    
+    # Example 3: Divergent vector field from center
+    coefficients3 = {
+        (0, 1): 1.0,    # Horizontal edge in center triangle
+        (0, 2): 0.7,    # Edge from center-left to top
+        (1, 2): 0.7,    # Edge from center-right to top
+        (0, 3): -0.5,   # Left edge
+        (2, 3): 0.5,    # Upper left edge
+        (1, 4): 0.5,    # Right edge
+        (2, 4): 0.5,    # Upper right edge
+        (0, 5): 0.7,    # Bottom left edge
+        (1, 5): 0.7,    # Bottom right edge
+    }
+    
+    plot_fe_solution(vertices, triangles, edges, coefficients3, 
+                    "out/solution_divergent.png", 
+                    title="Divergent Vector Field",
+                    highlight_edges=[(0, 1), (0, 2), (1, 2)])
+    
+    # Example 4: Local solution on a single triangle
+    eq_triangle = np.array([[0, 0], [1, 0], [0.5, np.sqrt(3)/2]])
+    eq_vertices, eq_triangles, eq_edges = create_single_triangle_mesh(eq_triangle)
+    
+    # Simple linear combination of basis functions
+    local_coefficients = {
+        (0, 1): 1.0,
+        (1, 2): 0.5,
+        (0, 2): 0.8
+    }
+    
+    plot_fe_solution(eq_vertices, eq_triangles, eq_edges, local_coefficients,
+                    "out/solution_local.png",
+                    title="Linear Combination on Single Triangle",
+                    show_labels=False)
+
 def main():
     """Main function to create local and global Whitney form plots."""
     import os
     os.makedirs("out", exist_ok=True)
     
     plot_local_whitneys()
+    print("Local Whitney forms plotted.")
+    
     plot_global_whitneys()
+    print("Global Whitney forms plotted.")
+    
+    plot_example_solutions()
+    print("Example solutions plotted.")
 
 if __name__ == "__main__":
     main()
