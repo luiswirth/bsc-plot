@@ -440,10 +440,10 @@ def plot_fe_solution(vertices, triangles, edges, coefficients, filename, title=N
     # Create figure
     fig, ax = setup_plot()
     
-    # Compute combined vector field and magnitude for each triangle
-    max_magnitude = 0  # Track maximum magnitude for colormap normalization
+    # First pass: compute global min and max magnitude for consistent color scale
+    triangle_data = []  # Store data for each triangle to avoid recomputation
+    all_magnitudes = []
     
-    # Plot each triangle
     for t_idx, triangle in enumerate(triangles):
         tri_vertices = vertices[triangle]
         
@@ -459,18 +459,61 @@ def plot_fe_solution(vertices, triangles, edges, coefficients, filename, title=N
         vectors = np.array([evaluate_fe_solution([xi, yi], vertices, triangle, coefficients, gradients) 
                           for xi, yi in zip(x, y)])
         magnitude = np.sqrt(vectors[:, 0]**2 + vectors[:, 1]**2)
-        max_magnitude = max(max_magnitude, np.max(magnitude)) if len(magnitude) > 0 else max_magnitude
+        all_magnitudes.extend(magnitude)
         
-        # Plot magnitude as heatmap using tripcolor with flat shading
-        ax.tripcolor(triang, magnitude, cmap='viridis', shading='flat')
+        # Store data for this triangle
+        triangle_data.append({
+            'triangle': triangle,
+            'vertices': tri_vertices,
+            'points': tri_points,
+            'vectors': vectors,
+            'magnitude': magnitude,
+            'gradients': gradients,
+            'triangulation': triang
+        })
+    
+    # Calculate global magnitude range for color normalization
+    min_magnitude = min(all_magnitudes) if all_magnitudes else 0
+    max_magnitude = max(all_magnitudes) if all_magnitudes else 1
+    
+    # Ensure a minimum range to avoid artifacts in constant fields
+    # If range is too small, expand it artificially
+    magnitude_range = max_magnitude - min_magnitude
+    if magnitude_range < 1e-6:
+        # For nearly constant fields, create an artificial range
+        mean_magnitude = (max_magnitude + min_magnitude) / 2
+        min_magnitude = mean_magnitude * 0.95  # 5% below mean
+        max_magnitude = mean_magnitude * 1.05  # 5% above mean
+        
+        if abs(mean_magnitude) < 1e-10:  # If magnitude is essentially zero
+            min_magnitude = 0
+            max_magnitude = 1e-6
+    
+    # Import color normalization for consistent coloring
+    from matplotlib.colors import Normalize
+    norm = Normalize(vmin=min_magnitude, vmax=max_magnitude)
+    
+    # Second pass: plot with consistent color scale
+    for t_data in triangle_data:
+        # Plot magnitude as heatmap using tripcolor with flat shading and global normalization
+        ax.tripcolor(t_data['triangulation'], t_data['magnitude'], 
+                    cmap='viridis', shading='flat', norm=norm)
         
         # Add arrows inside this triangle
-        quiver_points = generate_triangle_grid(tri_vertices, 10)
-        quiver_vectors = np.array([evaluate_fe_solution([p[0], p[1]], vertices, triangle, coefficients, gradients) 
+        quiver_points = generate_triangle_grid(t_data['vertices'], 10)
+        triangle = t_data['triangle']
+        quiver_vectors = np.array([evaluate_fe_solution([p[0], p[1]], vertices, triangle, coefficients, t_data['gradients']) 
                                 for p in quiver_points])
         
         # Plot vector field
         plot_vector_field(ax, quiver_points, quiver_vectors, scale=15, width=0.004)
+    
+    # Add a colorbar
+    from matplotlib.cm import ScalarMappable
+    sm = ScalarMappable(cmap='viridis', norm=norm)
+    sm.set_array([])
+    cb = plt.colorbar(sm, ax=ax)
+    cb.set_label('Magnitude', fontsize=14)
     
     # Plot mesh edges and highlighted edges
     plot_mesh_edges(ax, vertices, triangles, highlight_edges)
@@ -601,9 +644,9 @@ def plot_example_solutions():
     
     # Simple linear combination of basis functions
     local_coefficients = {
-        (0, 1): 1.0,
-        (1, 2): 0.5,
-        (0, 2): 0.8
+        (0, 1): +1.0,
+        (1, 2): +1.0,
+        (0, 2): -1.0,
     }
     
     plot_fe_solution(eq_vertices, eq_triangles, eq_edges, local_coefficients,
@@ -616,11 +659,11 @@ def main():
     import os
     os.makedirs("out", exist_ok=True)
     
-    #plot_local_whitneys()
-    #print("Local Whitney forms plotted.")
+    plot_local_whitneys()
+    print("Local Whitney forms plotted.")
     
-    #plot_global_whitneys()
-    #print("Global Whitney forms plotted.")
+    plot_global_whitneys()
+    print("Global Whitney forms plotted.")
     
     plot_example_solutions()
     print("Example solutions plotted.")
