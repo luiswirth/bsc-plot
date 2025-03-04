@@ -545,15 +545,15 @@ def plot_example_solutions():
     
     # Example 1: Constant vector field pointing to the right
     coefficients1 = {
-        (0, 1): 1.0,    # Horizontal edge in bottom triangle
-        (0, 2): 0.5,    # Edge from bottom-left to top
-        (1, 2): -0.5,   # Edge from bottom-right to top
-        (0, 3): 0.0,    # Left edge
-        (2, 3): 0.0,    # Upper left edge
-        (1, 4): 0.0,    # Right edge
-        (2, 4): 0.0,    # Upper right edge
-        (0, 5): 0.0,    # Bottom left edge
-        (1, 5): 0.0,    # Bottom right edge
+        (0, 1): +1.0,    # Horizontal edge in bottom triangle
+        (0, 2): +0.5,    # Edge from bottom-left to top
+        (1, 2): -0.5,    # Edge from bottom-right to top
+        (0, 3): -0.5,    # Left edge
+        (2, 3): -1.0,    # Upper left edge
+        (1, 4): +0.5,    # Right edge
+        (2, 4): +1.0,    # Upper right edge
+        (0, 5): +0.5,    # Bottom left edge
+        (1, 5): -0.5,    # Bottom right edge
     }
     
     plot_fe_solution(vertices, triangles, edges, coefficients1, 
@@ -562,15 +562,15 @@ def plot_example_solutions():
     
     # Example 2: Rotational vector field
     coefficients2 = {
-        (0, 1): 0.0,    # Horizontal edge in center triangle
-        (0, 2): 1.0,    # Edge from center-left to top
-        (1, 2): 1.0,    # Edge from center-right to top
-        (0, 3): 1.0,    # Left edge
-        (2, 3): -1.0,   # Upper left edge
-        (1, 4): -1.0,   # Right edge
-        (2, 4): 1.0,    # Upper right edge
-        (0, 5): -1.0,   # Bottom left edge
-        (1, 5): 1.0,    # Bottom right edge
+        (0, 1): +1.0,    # Horizontal edge in center triangle
+        (0, 2): -1.0,    # Edge from center-left to top
+        (1, 2): +1.0,    # Edge from center-right to top
+        (0, 3): -1.0,    # Left edge
+        (2, 3): +1.0,   # Upper left edge
+        (1, 4): +1.0,   # Right edge
+        (2, 4): -1.0,    # Upper right edge
+        (0, 5): +1.0,   # Bottom left edge
+        (1, 5): -1.0,    # Bottom right edge
     }
     
     plot_fe_solution(vertices, triangles, edges, coefficients2, 
@@ -579,15 +579,15 @@ def plot_example_solutions():
     
     # Example 3: Divergent vector field from center
     coefficients3 = {
-        (0, 1): 1.0,    # Horizontal edge in center triangle
-        (0, 2): 0.7,    # Edge from center-left to top
-        (1, 2): 0.7,    # Edge from center-right to top
-        (0, 3): -0.5,   # Left edge
-        (2, 3): 0.5,    # Upper left edge
-        (1, 4): 0.5,    # Right edge
-        (2, 4): 0.5,    # Upper right edge
-        (0, 5): 0.7,    # Bottom left edge
-        (1, 5): 0.7,    # Bottom right edge
+        (0, 1): +0.0,    # Horizontal edge in center triangle
+        (0, 2): +0.0,    # Edge from center-left to top
+        (1, 2): +0.0,    # Edge from center-right to top
+        (0, 3): +0.5,   # Left edge
+        (2, 3): +0.5,    # Upper left edge
+        (1, 4): +0.5,    # Right edge
+        (2, 4): +0.5,    # Upper right edge
+        (0, 5): +0.5,    # Bottom left edge
+        (1, 5): +0.5,    # Bottom right edge
     }
     
     plot_fe_solution(vertices, triangles, edges, coefficients3, 
@@ -616,11 +616,11 @@ def main():
     import os
     os.makedirs("out", exist_ok=True)
     
-    plot_local_whitneys()
-    print("Local Whitney forms plotted.")
+    #plot_local_whitneys()
+    #print("Local Whitney forms plotted.")
     
-    plot_global_whitneys()
-    print("Global Whitney forms plotted.")
+    #plot_global_whitneys()
+    #print("Global Whitney forms plotted.")
     
     plot_example_solutions()
     print("Example solutions plotted.")
