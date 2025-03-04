@@ -115,7 +115,7 @@ def whitney_form(point, vertices, i, j, gradients=None):
     
     return whitney_vector
 
-def plot_local_whitney_form(vertices, i, j, form_name, filename):
+def plot_local_whitney_form(vertices, i, j, filename):
     """Plot a Whitney 1-form as a vector field with magnitude heatmap for an arbitrary triangle.
     
     Args:
@@ -168,7 +168,7 @@ def plot_local_whitney_form(vertices, i, j, form_name, filename):
     ax.plot(triangle_boundary[:, 0], triangle_boundary[:, 1], 'k-', linewidth=1.5)
     
     fontsize = 20
-    ax.set_title(f'{form_name}', fontsize=fontsize)
+    ax.set_title(f'Local Whitney Form $\\lambda_{{{i}{j}}}$', fontsize=20)
     ax.set_xlabel('x', fontsize=fontsize)
     ax.set_ylabel('y', fontsize=fontsize)
     ax.set_aspect('equal')
@@ -349,9 +349,9 @@ def plot_global_whitney_form(vertices, triangles, edges, global_edge, filename):
             # Plot vector field with thinner arrows
             ax.quiver(quiver_points[:, 0], quiver_points[:, 1], 
                       norm_u, norm_v,
-                      angles='xy', scale_units='xy', scale=25,
+                      angles='xy', scale_units='xy', scale=10,
                       pivot='tail', color='white', alpha=0.8,
-                      width=0.003, headwidth=4, headlength=5)  # Thinner arrows
+                      width=0.003, headwidth=4, headlength=6)
     
     # Plot mesh edges
     for triangle in triangles:
@@ -370,14 +370,14 @@ def plot_global_whitney_form(vertices, triangles, edges, global_edge, filename):
                 bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
     
     # Add a colorbar
-    sm = plt.cm.ScalarMappable(cmap='viridis')
-    sm.set_array([])  # Fake an array for the colorbar
-    cbar = plt.colorbar(sm, ax=ax)
-    cbar.set_label('Magnitude', fontsize=14)
+    #sm = plt.cm.ScalarMappable(cmap='viridis')
+    #sm.set_array([])  # Fake an array for the colorbar
+    #cbar = plt.colorbar(sm, ax=ax)
+    #cbar.set_label('Magnitude', fontsize=14)
     
     # Set title and labels
     v1, v2 = global_edge
-    ax.set_title(f'Global Whitney Form: $\\lambda_{{{v1}{v2}}}$', fontsize=20)
+    ax.set_title(f'Global Whitney Form $\\varphi_{{{v1}{v2}}}$', fontsize=20)
     ax.set_xlabel('x', fontsize=16)
     ax.set_ylabel('y', fontsize=16)
     ax.set_aspect('equal')
@@ -398,15 +398,15 @@ def plot_local_whitneys():
     """Plot local Whitney form basis functions on different triangles."""
     # Reference triangle
     ref_triangle = np.array([[0, 0], [1, 0], [0, 1]])
-    plot_local_whitney_form(ref_triangle, 0, 1, "λ₀₁", "out/ref_lambda01.png")
-    plot_local_whitney_form(ref_triangle, 0, 2, "λ₀₂", "out/ref_lambda02.png")
-    plot_local_whitney_form(ref_triangle, 1, 2, "λ₁₂", "out/ref_lambda12.png")
+    plot_local_whitney_form(ref_triangle, 0, 1, "out/ref_lambda01.png")
+    plot_local_whitney_form(ref_triangle, 0, 2, "out/ref_lambda02.png")
+    plot_local_whitney_form(ref_triangle, 1, 2, "out/ref_lambda12.png")
     
     # Equilateral triangle
     eq_triangle = np.array([[0, 0], [1, 0], [0.5, np.sqrt(3)/2]])
-    plot_local_whitney_form(eq_triangle, 0, 1, "λ₀₁", "out/eq_lambda01.png")
-    plot_local_whitney_form(eq_triangle, 0, 2, "λ₀₂", "out/eq_lambda02.png")
-    plot_local_whitney_form(eq_triangle, 1, 2, "λ₁₂", "out/eq_lambda12.png")
+    plot_local_whitney_form(eq_triangle, 0, 1, "out/eq_lambda01.png")
+    plot_local_whitney_form(eq_triangle, 0, 2, "out/eq_lambda02.png")
+    plot_local_whitney_form(eq_triangle, 1, 2, "out/eq_lambda12.png")
 
 def plot_global_whitneys():
 
@@ -414,16 +414,16 @@ def plot_global_whitneys():
     vertices, triangles, edges = create_simple_mesh()
     
     # Plot global Whitney forms for different edges
-    plot_global_whitney_form(vertices, triangles, edges, (0, 1), "out/global_lambda01.png")
-    plot_global_whitney_form(vertices, triangles, edges, (0, 2), "out/global_lambda02.png")
-    plot_global_whitney_form(vertices, triangles, edges, (1, 2), "out/global_lambda12.png")
+    plot_global_whitney_form(vertices, triangles, edges, (0, 1), "out/eq_phi01.png")
+    plot_global_whitney_form(vertices, triangles, edges, (0, 2), "out/eq_phi02.png")
+    plot_global_whitney_form(vertices, triangles, edges, (1, 2), "out/eq_phi12.png")
 
 def main():
     """Main function to create either local or global Whitney form plots."""
     import os
     os.makedirs("out", exist_ok=True)
     
-    #plot_local_whitneys()
+    plot_local_whitneys()
     plot_global_whitneys()
 
 if __name__ == "__main__":
