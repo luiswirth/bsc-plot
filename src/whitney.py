@@ -116,7 +116,29 @@ def whitney_form(point, vertices, i, j, gradients=None):
     
     return whitney_vector
 
-# --- Mesh Utilities ---
+# --- Mesh Creation and Handling ---
+
+def create_single_triangle_mesh(vertices):
+    """Create a mesh with a single triangle.
+    
+    Args:
+        vertices: 3x2 array of triangle vertex coordinates
+        
+    Returns:
+        vertices: same as input
+        triangles: 1x3 array with indices [0, 1, 2]
+        edges: dict mapping edge (v1,v2) to list of adjacent triangle indices
+    """
+    triangles = np.array([[0, 1, 2]])  # Single triangle
+    
+    # Create edge-to-triangles mapping
+    edges = {
+        (0, 1): [0],
+        (1, 2): [0],
+        (0, 2): [0]
+    }
+    
+    return vertices, triangles, edges
 
 def create_simple_mesh():
     """Create a simple mesh with 4 triangles.
@@ -243,80 +265,24 @@ def plot_vector_field(ax, points, vectors, scale=20, width=0.004):
               pivot='tail', color='white', alpha=0.8, 
               width=width, headwidth=4, headlength=6)
 
-def plot_local_whitney_form(vertices, i, j, filename):
-    """Plot a Whitney 1-form as a vector field with magnitude heatmap for an arbitrary triangle.
+def plot_whitney_form(vertices, triangles, edges, edge, filename, title=None, show_labels=True):
+    """Plot a Whitney 1-form across a mesh.
     
     Args:
-        vertices: 3x2 array of triangle vertex coordinates
-        i, j: indices (0,1,2) of the vertices defining the edge
+        vertices: vertex coordinates
+        triangles: triangle indices
+        edges: mapping from edge (v1,v2) to list of adjacent triangle indices
+        edge: tuple (v1,v2) of vertex indices defining the edge to plot
         filename: output file name
-    """
-    fig, ax = plt.subplots(figsize=(8, 7))
-    
-    # Precompute gradients for efficiency
-    gradients = compute_barycentric_gradients(vertices)
-    
-    # Generate triangulation for the triangle
-    n_grid = 100  # Increased resolution
-    points = generate_triangle_grid(vertices, n_grid)
-    x, y = points[:, 0], points[:, 1]
-    
-    # Create triangulation
-    triang = Triangulation(x, y)
-    
-    # Calculate vector field at each point
-    vectors = np.array([whitney_form([xi, yi], vertices, i, j, gradients) for xi, yi in points])
-    magnitude = np.sqrt(vectors[:, 0]**2 + vectors[:, 1]**2)
-    
-    # Plot magnitude as a heatmap using tripcolor with flat shading
-    _im = ax.tripcolor(triang, magnitude, cmap='viridis', shading='flat')
-    
-    # Generate fewer quiver points for visualization
-    quiver_points = generate_triangle_grid(vertices, 12)
-    quiver_vectors = np.array([whitney_form([p[0], p[1]], vertices, i, j, gradients) for p in quiver_points])
-    
-    # Plot vector field
-    plot_vector_field(ax, quiver_points, quiver_vectors)
-    
-    # Plot triangle boundary
-    triangle_boundary = np.vstack([vertices, vertices[0]])
-    ax.plot(triangle_boundary[:, 0], triangle_boundary[:, 1], 'k-', linewidth=1.5)
-    
-    # Set title and labels
-    fontsize = 20
-    ax.set_title(f'Local Whitney Form $\\lambda_{{{i}{j}}}$', fontsize=fontsize)
-    ax.set_xlabel('x', fontsize=fontsize)
-    ax.set_ylabel('y', fontsize=fontsize)
-    ax.set_aspect('equal')
-    
-    # Set limits with a small margin around the triangle
-    min_x, max_x = np.min(vertices[:, 0]), np.max(vertices[:, 0])
-    min_y, max_y = np.min(vertices[:, 1]), np.max(vertices[:, 1])
-    margin = 0.02 * max(max_x - min_x, max_y - min_y)
-    ax.set_xlim(min_x - margin, max_x + margin)
-    ax.set_ylim(min_y - margin, max_y + margin)
-    
-    plt.tight_layout()
-    plt.savefig(filename, dpi=300, bbox_inches='tight')
-    print(f"Figure saved as '{filename}'")
-    plt.close(fig)
-
-def plot_global_whitney_form(vertices, triangles, edges, global_edge, filename):
-    """Plot a global Whitney 1-form across the entire mesh.
-    
-    Args:
-        vertices: global vertex coordinates
-        triangles: global triangle indices
-        edges: mapping from global edges to adjacent triangles
-        global_edge: tuple (v1,v2) of global vertex indices defining the edge to plot
-        filename: output file name
+        title: optional custom title for the plot
+        show_labels: whether to show vertex labels
     """
     # Sort edge vertices for consistency
-    global_edge = tuple(sorted(global_edge))
+    edge = tuple(sorted(edge))
     
     # Check if edge exists in mesh
-    if global_edge not in edges:
-        print(f"Edge {global_edge} not found in mesh")
+    if edge not in edges:
+        print(f"Edge {edge} not found in mesh")
         return
     
     # Create figure
@@ -326,8 +292,8 @@ def plot_global_whitney_form(vertices, triangles, edges, global_edge, filename):
     for t_idx, triangle in enumerate(triangles):
         tri_vertices = vertices[triangle]
         
-        # Check if this triangle contains the global edge
-        has_edge = (global_edge[0] in triangle and global_edge[1] in triangle)
+        # Check if this triangle contains the edge
+        has_edge = (edge[0] in triangle and edge[1] in triangle)
         
         # Only process triangles containing the edge
         if has_edge:
@@ -338,24 +304,24 @@ def plot_global_whitney_form(vertices, triangles, edges, global_edge, filename):
             
             # Map global indices to local indices
             local_indices = {g_idx: l_idx for l_idx, g_idx in enumerate(triangle)}
-            local_i = local_indices[global_edge[0]]
-            local_j = local_indices[global_edge[1]]
+            local_i = local_indices[edge[0]]
+            local_j = local_indices[edge[1]]
             
             # Calculate vector field at each point
             vectors = np.array([whitney_form([xi, yi], tri_vertices, local_i, local_j) 
-                               for xi, yi in zip(x, y)])
+                              for xi, yi in zip(x, y)])
             magnitude = np.sqrt(vectors[:, 0]**2 + vectors[:, 1]**2)
             
             # Plot magnitude as heatmap using tripcolor with flat shading
             ax.tripcolor(triang, magnitude, cmap='viridis', shading='flat')
             
             # Add arrows inside this triangle
-            quiver_points = generate_triangle_grid(tri_vertices, 8)
+            quiver_points = generate_triangle_grid(tri_vertices, 10)
             quiver_vectors = np.array([whitney_form([p[0], p[1]], tri_vertices, local_i, local_j) 
-                                     for p in quiver_points])
+                                    for p in quiver_points])
             
             # Plot vector field
-            plot_vector_field(ax, quiver_points, quiver_vectors, scale=10, width=0.003)
+            plot_vector_field(ax, quiver_points, quiver_vectors, scale=15, width=0.004)
     
     # Plot mesh edges
     for triangle in triangles:
@@ -365,17 +331,23 @@ def plot_global_whitney_form(vertices, triangles, edges, global_edge, filename):
         ax.plot(tri_vertices[:, 0], tri_vertices[:, 1], 'k-', linewidth=1.0)
     
     # Highlight the edge of interest
-    edge_vertices = vertices[list(global_edge)]
+    edge_vertices = vertices[list(edge)]
     ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=2.5)
     
-    # Add vertex labels
-    for i, (x, y) in enumerate(vertices):
-        ax.text(x, y, f'${i}$', fontsize=14, ha='center', va='center', 
-                bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
+    # Add vertex labels if requested
+    if show_labels:
+        for i, (x, y) in enumerate(vertices):
+            ax.text(x, y, f'${i}$', fontsize=14, ha='center', va='center', 
+                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
     
     # Set title and labels
-    v1, v2 = global_edge
-    ax.set_title(f'Global Whitney Form $\\varphi_{{{v1}{v2}}}$', fontsize=20)
+    v1, v2 = edge
+    fontsize = 20
+    if title:
+        ax.set_title(title, fontsize=fontsize)
+    else:
+        ax.set_title(f'Whitney Form $\\varphi_{{{v1}{v2}}}$', fontsize=fontsize)
+    
     ax.set_xlabel('x', fontsize=16)
     ax.set_ylabel('y', fontsize=16)
     ax.set_aspect('equal')
@@ -383,7 +355,7 @@ def plot_global_whitney_form(vertices, triangles, edges, global_edge, filename):
     # Set limits with small margin
     min_x, min_y = np.min(vertices, axis=0)
     max_x, max_y = np.max(vertices, axis=0)
-    margin = 0.1
+    margin = 0.1 * max(max_x - min_x, max_y - min_y)
     ax.set_xlim(min_x - margin, max_x + margin)
     ax.set_ylim(min_y - margin, max_y + margin)
     
@@ -398,15 +370,25 @@ def plot_local_whitneys():
     """Plot local Whitney form basis functions on different triangles."""
     # Reference triangle
     ref_triangle = np.array([[0, 0], [1, 0], [0, 1]])
-    plot_local_whitney_form(ref_triangle, 0, 1, "out/ref_lambda01.png")
-    plot_local_whitney_form(ref_triangle, 0, 2, "out/ref_lambda02.png")
-    plot_local_whitney_form(ref_triangle, 1, 2, "out/ref_lambda12.png")
+    ref_vertices, ref_triangles, ref_edges = create_single_triangle_mesh(ref_triangle)
+    
+    plot_whitney_form(ref_vertices, ref_triangles, ref_edges, (0, 1), 
+                      "out/ref_phi01.png", show_labels=False)
+    plot_whitney_form(ref_vertices, ref_triangles, ref_edges, (0, 2), 
+                      "out/ref_phi02.png", show_labels=False)
+    plot_whitney_form(ref_vertices, ref_triangles, ref_edges, (1, 2), 
+                      "out/ref_phi12.png", show_labels=False)
     
     # Equilateral triangle
     eq_triangle = np.array([[0, 0], [1, 0], [0.5, np.sqrt(3)/2]])
-    plot_local_whitney_form(eq_triangle, 0, 1, "out/eq_lambda01.png")
-    plot_local_whitney_form(eq_triangle, 0, 2, "out/eq_lambda02.png")
-    plot_local_whitney_form(eq_triangle, 1, 2, "out/eq_lambda12.png")
+    eq_vertices, eq_triangles, eq_edges = create_single_triangle_mesh(eq_triangle)
+    
+    plot_whitney_form(eq_vertices, eq_triangles, eq_edges, (0, 1), 
+                      "out/eq_phi01.png", show_labels=False)
+    plot_whitney_form(eq_vertices, eq_triangles, eq_edges, (0, 2), 
+                      "out/eq_phi02.png", show_labels=False)
+    plot_whitney_form(eq_vertices, eq_triangles, eq_edges, (1, 2), 
+                      "out/eq_phi12.png", show_labels=False)
 
 def plot_global_whitneys():
     """Plot global Whitney form basis functions on a simple mesh."""
@@ -414,12 +396,12 @@ def plot_global_whitneys():
     vertices, triangles, edges = create_simple_mesh()
     
     # Plot global Whitney forms for different edges
-    plot_global_whitney_form(vertices, triangles, edges, (0, 1), "out/eq_phi01.png")
-    plot_global_whitney_form(vertices, triangles, edges, (0, 2), "out/eq_phi02.png")
-    plot_global_whitney_form(vertices, triangles, edges, (1, 2), "out/eq_phi12.png")
+    plot_whitney_form(vertices, triangles, edges, (0, 1), "out/mesh_phi01.png")
+    plot_whitney_form(vertices, triangles, edges, (0, 2), "out/mesh_phi02.png")
+    plot_whitney_form(vertices, triangles, edges, (1, 2), "out/mesh_phi12.png")
 
 def main():
-    """Main function to create either local or global Whitney form plots."""
+    """Main function to create local and global Whitney form plots."""
     import os
     os.makedirs("out", exist_ok=True)
     
