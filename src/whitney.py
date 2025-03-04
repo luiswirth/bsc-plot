@@ -1,8 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.tri import Triangulation, LinearTriInterpolator
-from matplotlib.patches import Polygon
-from matplotlib.colors import LinearSegmentedColormap
 
 def generate_triangle_grid(vertices, n_points=20):
     """Generate a grid of points within an arbitrary triangle.
@@ -18,14 +16,10 @@ def generate_triangle_grid(vertices, n_points=20):
     points = []
     for i in range(n_points+1):
         for j in range(n_points+1-i):
-            # Barycentric coordinates
             lambda0 = (n_points - i - j) / n_points
             lambda1 = j / n_points
             lambda2 = i / n_points
             
-            # Convert to Cartesian coordinates using the formula:
-            # x = lambda0*x0 + lambda1*x1 + lambda2*x2
-            # y = lambda0*y0 + lambda1*y1 + lambda2*y2
             x = lambda0 * vertices[0, 0] + lambda1 * vertices[1, 0] + lambda2 * vertices[2, 0]
             y = lambda0 * vertices[0, 1] + lambda1 * vertices[1, 1] + lambda2 * vertices[2, 1]
             
@@ -121,7 +115,7 @@ def whitney_form(point, vertices, i, j, gradients=None):
     
     return whitney_vector
 
-def plot_whitney_form(vertices, i, j, form_name, filename):
+def plot_local_whitney_form(vertices, i, j, form_name, filename):
     """Plot a Whitney 1-form as a vector field with magnitude heatmap for an arbitrary triangle.
     
     Args:
@@ -201,22 +195,22 @@ def create_simple_mesh():
         triangles: Mx3 array of triangle indices
         edges: dict mapping global edge (v1,v2) to list of adjacent triangle indices
     """
-    # Define vertex coordinates
+
     vertices = np.array([
-        [0.0, 0.0],  # Vertex 0
-        [1.0, 0.0],  # Vertex 1
-        [0.0, 1.0],  # Vertex 2
-        [1.0, 1.0],  # Vertex 3
-        [2.0, 0.0],  # Vertex 4
-        [2.0, 1.0],  # Vertex 5
+        [0, 0], # center left
+        [1, 0], # center right
+        [0.5, np.sqrt(3)/2], # center top
+        [-0.5, np.sqrt(3)/2], # top left
+        [1.5, np.sqrt(3)/2], # top right
+        [0.5, -np.sqrt(3)/2], # bottom center
     ])
     
     # Define triangles (as indices into the vertices array)
     triangles = np.array([
-        [0, 1, 2],  # Triangle 0
-        [1, 3, 2],  # Triangle 1
-        [1, 4, 3],  # Triangle 2
-        [4, 5, 3],  # Triangle 3
+        [0, 1, 2], # center
+        [0, 2, 3], # left
+        [1, 4, 2], # right
+        [1, 0, 5], # bottom
     ])
     
     # Create edge-to-triangles mapping
@@ -404,44 +398,32 @@ def plot_local_whitneys():
     """Plot local Whitney form basis functions on different triangles."""
     # Reference triangle
     ref_triangle = np.array([[0, 0], [1, 0], [0, 1]])
-    plot_whitney_form(ref_triangle, 0, 1, "λ₀₁", "out/ref_lambda01.png")
-    plot_whitney_form(ref_triangle, 0, 2, "λ₀₂", "out/ref_lambda02.png")
-    plot_whitney_form(ref_triangle, 1, 2, "λ₁₂", "out/ref_lambda12.png")
+    plot_local_whitney_form(ref_triangle, 0, 1, "λ₀₁", "out/ref_lambda01.png")
+    plot_local_whitney_form(ref_triangle, 0, 2, "λ₀₂", "out/ref_lambda02.png")
+    plot_local_whitney_form(ref_triangle, 1, 2, "λ₁₂", "out/ref_lambda12.png")
     
     # Equilateral triangle
     eq_triangle = np.array([[0, 0], [1, 0], [0.5, np.sqrt(3)/2]])
-    plot_whitney_form(eq_triangle, 0, 1, "λ₀₁", "out/eq_lambda01.png")
-    plot_whitney_form(eq_triangle, 0, 2, "λ₀₂", "out/eq_lambda02.png")
-    plot_whitney_form(eq_triangle, 1, 2, "λ₁₂", "out/eq_lambda12.png")
+    plot_local_whitney_form(eq_triangle, 0, 1, "λ₀₁", "out/eq_lambda01.png")
+    plot_local_whitney_form(eq_triangle, 0, 2, "λ₀₂", "out/eq_lambda02.png")
+    plot_local_whitney_form(eq_triangle, 1, 2, "λ₁₂", "out/eq_lambda12.png")
 
 def plot_global_whitneys():
-    """Plot global Whitney form basis functions on a simple mesh."""
-    import os
-    
-    # Create output directory if it doesn't exist
-    os.makedirs("out", exist_ok=True)
-    
+
     # Create simple mesh
     vertices, triangles, edges = create_simple_mesh()
     
     # Plot global Whitney forms for different edges
-    plot_global_whitney_form(vertices, triangles, edges, (0, 1), "out/global_lambda01.png")  # Boundary edge
-    plot_global_whitney_form(vertices, triangles, edges, (1, 3), "out/global_lambda13.png")  # Interior edge
-    plot_global_whitney_form(vertices, triangles, edges, (1, 2), "out/global_lambda12.png")  # Edge in left triangles
-    plot_global_whitney_form(vertices, triangles, edges, (3, 5), "out/global_lambda35.png")  # Edge in right triangles
+    plot_global_whitney_form(vertices, triangles, edges, (0, 1), "out/global_lambda01.png")
+    plot_global_whitney_form(vertices, triangles, edges, (0, 2), "out/global_lambda02.png")
+    plot_global_whitney_form(vertices, triangles, edges, (1, 2), "out/global_lambda12.png")
 
 def main():
     """Main function to create either local or global Whitney form plots."""
     import os
-    # Create output directory if it doesn't exist
     os.makedirs("out", exist_ok=True)
     
-    # Uncomment the desired visualization
-    
-    # Plot local Whitney forms on individual triangles
     #plot_local_whitneys()
-    
-    # Plot global Whitney forms on a mesh
     plot_global_whitneys()
 
 if __name__ == "__main__":
