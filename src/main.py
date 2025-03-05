@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.tri import Triangulation
 from matplotlib.colors import Normalize
-from matplotlib.cm import ScalarMappable
 
 def compute_triangle_area(vertices):
     x0, y0 = vertices[0]
@@ -71,7 +70,7 @@ def whitney_form(point, vertices, i, j, gradients=None):
     whitney_vector = lambdas[i] * grad_j - lambdas[j] * grad_i
     return whitney_vector
 
-def evaluate_cochain(point, vertices, triangle, coefficients, gradients=None):
+def evaluate_cochain(point, vertices, triangle, cochain, gradients=None):
     """Evaluate a cochain at a point inside a triangle."""
     tri_vertices = vertices[triangle]
     
@@ -89,35 +88,12 @@ def evaluate_cochain(point, vertices, triangle, coefficients, gradients=None):
         global_edge = normalize_edge(original_edge)
         edge_sign = 1 if original_edge == global_edge else -1
         
-        if global_edge in coefficients:
-            coeff = coefficients[global_edge]
+        if global_edge in cochain:
+            coeff = cochain[global_edge]
             whitney_value = whitney_form(point, tri_vertices, local_i, local_j, gradients)
             result += edge_sign * coeff * whitney_value
     
     return result
-
-def create_singleton_mesh(vertices):
-    triangles = np.array([[0, 1, 2]])
-    return vertices, triangles
-
-def create_equilateral_mesh():
-    vertices = np.array([
-        [0, 0],                  # center left
-        [1, 0],                  # center right
-        [0.5, np.sqrt(3)/2],     # center top
-        [-0.5, np.sqrt(3)/2],    # top left
-        [1.5, np.sqrt(3)/2],     # top right
-        [0.5, -np.sqrt(3)/2],    # bottom center
-    ])
-    
-    triangles = np.array([
-        [0, 1, 2],  # center
-        [0, 2, 3],  # left
-        [1, 4, 2],  # right
-        [0, 1, 5],  # bottom
-    ])
-    
-    return vertices, triangles
 
 def setup_plot():
     """Create a new figure with common styling."""
@@ -169,7 +145,7 @@ def plot_vector_field(ax, points, vectors, triangle_vertices, triangle_area, len
         clip_path=triangle_polygon
     )
 
-def plot_mesh_edges(ax, vertices, triangles, highlight_edges=None):
+def plot_mesh_edges(ax, vertices, triangles, cochain_highlight=None):
     linewidth = 2.0
 
     for triangle in triangles:
@@ -177,27 +153,30 @@ def plot_mesh_edges(ax, vertices, triangles, highlight_edges=None):
         tri_vertices = np.vstack([tri_vertices, tri_vertices[0]])
         ax.plot(tri_vertices[:, 0], tri_vertices[:, 1], 'k-', linewidth=linewidth)
     
-    if highlight_edges:
-        for edge in highlight_edges:
-            edge = normalize_edge(edge)
-            edge_vertices = vertices[list(edge)]
-            ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=linewidth)
+    if cochain_highlight:
+        for edge in cochain_highlight:
+            coeff = cochain_highlight[edge]
+            if coeff != 0:
+                edge = normalize_edge(edge)
+                v0, v1 = edge
+                edge_vertices = vertices[[v0, v1]]
+                ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=linewidth)
 
 def plot_whitney_form(vertices, triangles, dof_edge, filename):
     dof_edge = normalize_edge(dof_edge)
     
-    coefficients = {}
-    coefficients[dof_edge] = 1.0
+    cochain = {}
+    cochain[dof_edge] = 1.0
     
     plot_cochain(
         vertices=vertices,
         triangles=triangles,
-        coefficients=coefficients,
+        cochain=cochain,
         filename=filename,
         highlight_edges=[dof_edge]
     )
 
-def plot_cochain(vertices, triangles, coefficients, filename, highlight_edges=None):
+def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False):
     fig, ax = setup_plot()
     
     all_areas = [compute_triangle_area(vertices[triangle]) for triangle in triangles]
@@ -219,7 +198,7 @@ def plot_cochain(vertices, triangles, coefficients, filename, highlight_edges=No
         gradients = compute_barycentric_gradients(tri_vertices)
         
         vectors = np.array([
-            evaluate_cochain([xi, yi], vertices, triangle, coefficients, gradients) 
+            evaluate_cochain([xi, yi], vertices, triangle, cochain, gradients) 
             for xi, yi in zip(x, y)
         ])
         magnitude = np.sqrt(vectors[:, 0]**2 + vectors[:, 1]**2)
@@ -266,16 +245,16 @@ def plot_cochain(vertices, triangles, coefficients, filename, highlight_edges=No
             cmap='viridis', shading='flat', norm=norm
         )
         
-        nquivers = 5
+        nquivers = 20
         quiver_points = generate_triangle_grid(t_data['vertices'], nquivers)
         quiver_vectors = np.array([
-            evaluate_cochain([p[0], p[1]], vertices, triangle, coefficients, t_data['gradients']) 
+            evaluate_cochain([p[0], p[1]], vertices, triangle, cochain, t_data['gradients']) 
             for p in quiver_points
         ])
         plot_vector_field(ax, quiver_points, quiver_vectors, triangle_vertices=t_data['vertices'], 
                          triangle_area=area, length=0.8 / nquivers, width=0.1 / nquivers)
 
-    plot_mesh_edges(ax, vertices, triangles, highlight_edges)
+    plot_mesh_edges(ax, vertices, triangles, cochain if highlight_edges else None)
     
     # Colorbar
     ##sm = ScalarMappable(cmap='viridis', norm=norm)
@@ -289,102 +268,27 @@ def load_file(filename, dtype=float):
     with open(filename, 'r') as f:
         return [list(map(dtype, line.strip().split())) for line in f if line.strip()]
 
-def load_mesh_and_cochain(path):
-    coords = np.array(load_file(f'{path}/coords.txt'), dtype=float)
-    triangles = np.array(load_file(f'{path}/cells.txt', dtype=int))
-    edges_array = np.array(load_file(f'{path}/edges.txt', dtype=int))
-    
-    cochain_values = np.array([float(line.strip()) for line in open(f'{path}/cochain.txt') 
-                              if line.strip()])
-    
-    coefficients = {}
-    for i, (v1, v2) in enumerate(edges_array):
-        edge = normalize_edge((v1, v2))
-        coefficients[edge] = cochain_values[i]
-    
-    return coords, triangles, coefficients
-
-def plot_from_files(path, output_filename):
+def plot_from_files(input_path):
     import os
+    import glob
 
-    vertices, triangles, coefficients = load_mesh_and_cochain(path)
-    os.makedirs(os.path.dirname(output_filename), exist_ok=True)
-    plot_cochain(vertices, triangles, coefficients, output_filename)
-    print(f"Plot created from {path} and saved as {output_filename}")
-
-# --- Example Functions ---
-
-def plot_local_whitneys():
-    """Plot local Whitney form basis functions on different triangles."""
-
-    # Reference triangle
-    ref_triangle = np.array([[0, 0], [1, 0], [0, 1]])
-    ref_vertices, ref_triangles = create_singleton_mesh(ref_triangle)
-    plot_whitney_form(ref_vertices, ref_triangles, (0, 1), "out/ref_phi01.png")
-    plot_whitney_form(ref_vertices, ref_triangles, (0, 2), "out/ref_phi02.png")
-    plot_whitney_form(ref_vertices, ref_triangles, (1, 2), "out/ref_phi12.png")
+    folder_name = os.path.split(input_path)[-1]
     
-    # Equilateral triangle
-    eq_triangle = np.array([[0, 0], [1, 0], [0.5, np.sqrt(3)/2]])
-    eq_vertices, eq_triangles = create_singleton_mesh(eq_triangle)
-    plot_whitney_form(eq_vertices, eq_triangles, (0, 1), "out/eq_phi01.png")
-    plot_whitney_form(eq_vertices, eq_triangles, (0, 2), "out/eq_phi02.png")
-    plot_whitney_form(eq_vertices, eq_triangles, (1, 2), "out/eq_phi12.png")
+    vertices = np.array(load_file(f'{input_path}/vertices.coords'), dtype=float)
+    triangles = np.array(load_file(f'{input_path}/cells.skel', dtype=int))
+    edges_array = np.array(load_file(f'{input_path}/edges.skel', dtype=int))
+    
+    for cochain_path in glob.glob(f'{input_path}/*.cochain'):
+        cochain_name = os.path.basename(cochain_path)
+        
+        cochain_list = np.array([float(line.strip()) for line in open(cochain_path) if line.strip()])
+        cochain_map = {}
+        for i, (v0, v1) in enumerate(edges_array):
+            edge = normalize_edge((v0, v1))
+            cochain_map[edge] = cochain_list[i]
 
-def plot_global_whitneys():
-    vertices, triangles = create_equilateral_mesh()
-    plot_whitney_form(vertices, triangles, (0, 1), "out/mesh_phi01.png")
-    plot_whitney_form(vertices, triangles, (0, 2), "out/mesh_phi02.png")
-    plot_whitney_form(vertices, triangles, (1, 2), "out/mesh_phi12.png")
-
-def plot_example_cochains():
-    vertices, triangles = create_equilateral_mesh()
-    
-    # Example 1: Constant vector field pointing to the right
-    coefficients1 = {
-        (0, 1): +1.0,
-        (0, 2): +0.5,
-        (1, 2): -0.5,
-        (0, 3): -0.5,
-        (2, 3): -1.0,
-        (1, 4): +0.5,
-        (2, 4): +1.0,
-        (0, 5): +0.5,
-        (1, 5): -0.5,
-    }
-    plot_cochain(vertices, triangles, coefficients1, "out/solution_constant.png")
-    
-    # Example 2: Rotational vector field
-    coefficients2 = {
-        (0, 1): +1.0,
-        (0, 2): -1.0,
-        (1, 2): +1.0,
-        (0, 3): -1.0,
-        (2, 3): +1.0,
-        (1, 4): +1.0,
-        (2, 4): -1.0,
-        (0, 5): +1.0,
-        (1, 5): -1.0,
-    }
-    plot_cochain(vertices, triangles, coefficients2, "out/solution_rotation.png")
-    
-    # Example 3: Divergent vector field from center
-    coefficients3 = {
-        (0, 1): +0.0,
-        (0, 2): +0.0,
-        (1, 2): +0.0,
-        (0, 3): +0.5,
-        (2, 3): +0.5,
-        (1, 4): +0.5,
-        (2, 4): +0.5,
-        (0, 5): +0.5,
-        (1, 5): +0.5,
-    }
-    plot_cochain(
-        vertices, triangles, coefficients3,
-        "out/solution_divergent.png",
-        highlight_edges=[(0, 1), (0, 2), (1, 2)]
-    )
+        output_file_path = f'out/{folder_name}_{cochain_name}.png'
+        plot_cochain(vertices, triangles, cochain_map, output_file_path, True)
 
 def main():
     import os
@@ -394,13 +298,7 @@ def main():
     
     if len(sys.argv) > 1:
         path = sys.argv[1]
-        output_file = sys.argv[2] if len(sys.argv) > 2 else "out/cochain.png"
-        
-        plot_from_files(path, output_file)
-    else:
-        plot_local_whitneys()
-        plot_global_whitneys()
-        plot_example_cochains()
+        plot_from_files(path)
 
 if __name__ == "__main__":
     main()
