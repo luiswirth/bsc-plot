@@ -78,9 +78,7 @@ def evaluate_cochain(point, vertices, triangle, coefficients, gradients=None):
     if gradients is None:
         gradients = compute_barycentric_gradients(tri_vertices)
     
-    # Local edges in the triangle (in CCW order)
-    # TODO: sus. Should this be [(0,1),(0,2),(1,2)]?
-    local_edges = [(0, 1), (1, 2), (2, 0)]
+    local_edges = [(0, 1), (0, 2), (1, 2)]
     
     result = np.zeros(2)
     for local_i, local_j in local_edges:
@@ -124,18 +122,17 @@ def create_equilateral_mesh():
 def setup_plot():
     """Create a new figure with common styling."""
     fig, ax = plt.subplots(figsize=(10, 8))
-    ax.set_xlabel('x', fontsize=16)
-    ax.set_ylabel('y', fontsize=16)
+    #ax.set_xlabel('x', fontsize=16)
+    #ax.set_ylabel('y', fontsize=16)
     ax.set_aspect('equal')
     return fig, ax
 
 def finalize_plot(fig, ax, vertices, filename, fontsize=20):
     """Apply final styling to the plot and save it."""
     
-    # Set limits with small margin
     min_x, min_y = np.min(vertices, axis=0)
     max_x, max_y = np.max(vertices, axis=0)
-    margin = 0.1 * max(max_x - min_x, max_y - min_y)
+    margin = 0.02 * max(max_x - min_x, max_y - min_y)
     ax.set_xlim(min_x - margin, max_x + margin)
     ax.set_ylim(min_y - margin, max_y + margin)
     
@@ -180,10 +177,11 @@ def plot_mesh_edges(ax, vertices, triangles, highlight_edges=None):
         tri_vertices = np.vstack([tri_vertices, tri_vertices[0]])
         ax.plot(tri_vertices[:, 0], tri_vertices[:, 1], 'k-', linewidth=linewidth)
     
-    for edge in highlight_edges:
-        edge = normalize_edge(edge)
-        edge_vertices = vertices[list(edge)]
-        ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=linewidth)
+    if highlight_edges:
+        for edge in highlight_edges:
+            edge = normalize_edge(edge)
+            edge_vertices = vertices[list(edge)]
+            ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=linewidth)
 
 def plot_whitney_form(vertices, triangles, dof_edge, filename):
     dof_edge = normalize_edge(dof_edge)
@@ -280,10 +278,10 @@ def plot_cochain(vertices, triangles, coefficients, filename, highlight_edges=No
     plot_mesh_edges(ax, vertices, triangles, highlight_edges)
     
     # Colorbar
-    sm = ScalarMappable(cmap='viridis', norm=norm)
-    sm.set_array([])
-    cb = plt.colorbar(sm, ax=ax)
-    cb.set_label('Magnitude', fontsize=14)
+    ##sm = ScalarMappable(cmap='viridis', norm=norm)
+    ##sm.set_array([])
+    ##cb = plt.colorbar(sm, ax=ax)
+    ##cb.set_label('Magnitude', fontsize=14)
     
     finalize_plot(fig, ax, vertices, filename)
 
