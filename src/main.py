@@ -167,22 +167,6 @@ def plot_mesh_edges(ax, vertices, triangles, cochain_highlight=None):
                 edge_vertices = vertices[[v0, v1]]
                 ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=linewidth)
 
-def plot_whitney_form(vertices, triangles, dof_edge, filename, skip_zero_triangles=False,
-                   heatmap_resolution=30, quiver_count=20):
-    dof_edge = normalize_edge(dof_edge)
-    cochain = {dof_edge: 1.0}
-    
-    plot_cochain(
-        vertices=vertices,
-        triangles=triangles,
-        cochain=cochain,
-        filename=filename,
-        highlight_edges=True,
-        skip_zero_triangles=skip_zero_triangles,
-        heatmap_resolution=heatmap_resolution,
-        quiver_count=quiver_count
-    )
-
 def has_nonzero_dofs(triangle, cochain):
     local_edges = [(0, 1), (0, 2), (1, 2)]
     for local_i, local_j in local_edges:
