@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-import sys
 import glob
 from matplotlib.tri import Triangulation
 from matplotlib.colors import Normalize
@@ -102,8 +101,6 @@ def evaluate_cochain(point, vertices, triangle, cochain, gradients=None):
 def setup_plot():
     """Create a new figure with common styling."""
     fig, ax = plt.subplots(figsize=(10, 8))
-    #ax.set_xlabel('x', fontsize=16)
-    #ax.set_ylabel('y', fontsize=16)
     ax.set_aspect('equal')
     return fig, ax
 
@@ -170,7 +167,7 @@ def plot_mesh_edges(ax, vertices, triangles, cochain_highlight=None):
                 edge_vertices = vertices[[v0, v1]]
                 ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=linewidth)
 
-def plot_whitney_form(vertices, triangles, dof_edge, filename):
+def plot_whitney_form(vertices, triangles, dof_edge, filename, skip_zero_triangles=False):
     dof_edge = normalize_edge(dof_edge)
     cochain = {dof_edge: 1.0}
     
@@ -179,15 +176,30 @@ def plot_whitney_form(vertices, triangles, dof_edge, filename):
         triangles=triangles,
         cochain=cochain,
         filename=filename,
-        highlight_edges=True
+        highlight_edges=True,
+        skip_zero_triangles=skip_zero_triangles
     )
 
-def compute_vector_field_data(vertices, triangles, cochain):
+def has_nonzero_dofs(triangle, cochain):
+    local_edges = [(0, 1), (0, 2), (1, 2)]
+    for local_i, local_j in local_edges:
+        global_i = triangle[local_i]
+        global_j = triangle[local_j]
+        edge = normalize_edge((global_i, global_j))
+        if edge in cochain and abs(cochain[edge]) > 1e-10:
+            return True
+    return False
+
+def compute_vector_field_data(vertices, triangles, cochain, skip_zero_triangles=False):
     all_areas = [compute_triangle_area(vertices[triangle]) for triangle in triangles]
     triangle_data = []
     all_magnitudes = []
     
     for t_idx, triangle in enumerate(triangles):
+        # Skip triangles with all zero DOFs if requested
+        if skip_zero_triangles and not has_nonzero_dofs(triangle, cochain):
+            continue
+            
         tri_vertices = vertices[triangle]
         area = all_areas[t_idx]
         n_points = 30
@@ -234,11 +246,17 @@ def get_magnitude_range(all_magnitudes):
     
     return min_magnitude, max_magnitude
 
-def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False):
+def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False, skip_zero_triangles=False):
     fig, ax = setup_plot()
     
     # Compute vector field data for all triangles
-    triangle_data, all_magnitudes = compute_vector_field_data(vertices, triangles, cochain)
+    triangle_data, all_magnitudes = compute_vector_field_data(
+        vertices, triangles, cochain, skip_zero_triangles
+    )
+    
+    if not all_magnitudes:
+        print(f"Warning: No non-zero triangles found for {filename}")
+        all_magnitudes = [0.0]
     
     # Get magnitude range for consistent coloring
     min_magnitude, max_magnitude = get_magnitude_range(all_magnitudes)
@@ -292,7 +310,7 @@ def build_cochain_map(edges_array, cochain_values):
         cochain_map[edge] = cochain_values[i]
     return cochain_map
 
-def plot_from_files(input_path):
+def plot_from_files(input_path, skip_zero_triangles=False):
     folder_name = os.path.basename(input_path)
     vertices, triangles, edges_array = load_mesh(input_path)
     
@@ -302,14 +320,26 @@ def plot_from_files(input_path):
         cochain_map = build_cochain_map(edges_array, cochain_values)
 
         output_file_path = f'out/{folder_name}_{cochain_name}.png'
-        plot_cochain(vertices, triangles, cochain_map, output_file_path, True)
+        plot_cochain(
+            vertices, 
+            triangles, 
+            cochain_map, 
+            output_file_path, 
+            highlight_edges=True,
+            skip_zero_triangles=skip_zero_triangles
+        )
 
 def main():
     os.makedirs("out", exist_ok=True)
     
-    if len(sys.argv) > 1:
-        path = sys.argv[1]
-        plot_from_files(path)
+    import argparse
+    parser = argparse.ArgumentParser(description='Plot Whitney forms visualization')
+    parser.add_argument('path', help='Path to the input files')
+    parser.add_argument('--skip-zero', action='store_true', 
+                        help='Skip triangles with all zero DOFs')
+    
+    args = parser.parse_args()
+    plot_from_files(args.path, skip_zero_triangles=args.skip_zero)
 
 if __name__ == "__main__":
     main()
