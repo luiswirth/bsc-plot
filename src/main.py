@@ -1,7 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+import sys
+import glob
 from matplotlib.tri import Triangulation
 from matplotlib.colors import Normalize
+from matplotlib.patches import Polygon
 
 def compute_triangle_area(vertices):
     x0, y0 = vertices[0]
@@ -117,21 +121,25 @@ def finalize_plot(fig, ax, vertices, filename, fontsize=20):
     print(f"Figure saved as '{filename}'")
     plt.close(fig)
 
-def plot_vector_field(ax, points, vectors, triangle_vertices, triangle_area, length=0.05, width=0.004):
-    u, v = vectors[:, 0], vectors[:, 1]
-    
-    # normalize vectors
-    magnitude = np.sqrt(u**2 + v**2)
+def compute_magnitude(vectors):
+    return np.sqrt(vectors[:, 0]**2 + vectors[:, 1]**2)
+
+def normalize_vectors(vectors):
+    magnitude = compute_magnitude(vectors)
     with np.errstate(divide='ignore', invalid='ignore'):
-        u = np.where(magnitude > 0, u / magnitude, 0)
-        v = np.where(magnitude > 0, v / magnitude, 0)
+        u_norm = np.where(magnitude > 0, vectors[:, 0] / magnitude, 0)
+        v_norm = np.where(magnitude > 0, vectors[:, 1] / magnitude, 0)
+    return np.column_stack((u_norm, v_norm))
+
+def plot_vector_field(ax, points, vectors, triangle_vertices, triangle_area, length=0.05, width=0.004):
+    normalized = normalize_vectors(vectors)
+    u, v = normalized[:, 0], normalized[:, 1]
     
     area_ref = 0.5
     area_factor = np.sqrt(triangle_area / area_ref)
     length = length * area_factor
     width = width * area_factor
     
-    from matplotlib.patches import Polygon
     triangle_polygon = Polygon(triangle_vertices, closed=True, fill=False, visible=False)
     ax.add_patch(triangle_polygon)
     
@@ -164,31 +172,24 @@ def plot_mesh_edges(ax, vertices, triangles, cochain_highlight=None):
 
 def plot_whitney_form(vertices, triangles, dof_edge, filename):
     dof_edge = normalize_edge(dof_edge)
-    
-    cochain = {}
-    cochain[dof_edge] = 1.0
+    cochain = {dof_edge: 1.0}
     
     plot_cochain(
         vertices=vertices,
         triangles=triangles,
         cochain=cochain,
         filename=filename,
-        highlight_edges=[dof_edge]
+        highlight_edges=True
     )
 
-def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False):
-    fig, ax = setup_plot()
-    
+def compute_vector_field_data(vertices, triangles, cochain):
     all_areas = [compute_triangle_area(vertices[triangle]) for triangle in triangles]
-    
-    # First pass: compute global min and max magnitude for consistent color scale
-    triangle_data = []  # Store data for each triangle
+    triangle_data = []
     all_magnitudes = []
     
     for t_idx, triangle in enumerate(triangles):
         tri_vertices = vertices[triangle]
         area = all_areas[t_idx]
-        
         n_points = 30
         
         tri_points = generate_triangle_grid(tri_vertices, n_points)
@@ -201,10 +202,9 @@ def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False):
             evaluate_cochain([xi, yi], vertices, triangle, cochain, gradients) 
             for xi, yi in zip(x, y)
         ])
-        magnitude = np.sqrt(vectors[:, 0]**2 + vectors[:, 1]**2)
+        magnitude = compute_magnitude(vectors)
         all_magnitudes.extend(magnitude)
         
-        # Store data for this triangle
         triangle_data.append({
             'triangle': triangle,
             'vertices': tri_vertices,
@@ -216,26 +216,35 @@ def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False):
             'area': area
         })
     
+    return triangle_data, all_magnitudes
+
+def get_magnitude_range(all_magnitudes):
     min_magnitude = min(all_magnitudes)
     max_magnitude = max(all_magnitudes)
-    
     magnitude_range = max_magnitude - min_magnitude
 
-    # Ensure a minimum range to avoid artifacts in constant fields
     if magnitude_range < 1e-6:
         mean_magnitude = (max_magnitude + min_magnitude) / 2
         min_magnitude = mean_magnitude * 0.95
         max_magnitude = mean_magnitude * 1.05
         
-        # If magnitude is essentially zero
         if abs(mean_magnitude) < 1e-10:
             min_magnitude = 0
             max_magnitude = 1e-6
     
-    # Create color normalization for consistent coloring
+    return min_magnitude, max_magnitude
+
+def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False):
+    fig, ax = setup_plot()
+    
+    # Compute vector field data for all triangles
+    triangle_data, all_magnitudes = compute_vector_field_data(vertices, triangles, cochain)
+    
+    # Get magnitude range for consistent coloring
+    min_magnitude, max_magnitude = get_magnitude_range(all_magnitudes)
     norm = Normalize(vmin=min_magnitude, vmax=max_magnitude)
     
-    # Second pass: plot with consistent color scale
+    # Plot the vector field
     for t_data in triangle_data:
         triangle = t_data['triangle']
         area = t_data['area']
@@ -251,49 +260,51 @@ def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False):
             evaluate_cochain([p[0], p[1]], vertices, triangle, cochain, t_data['gradients']) 
             for p in quiver_points
         ])
-        plot_vector_field(ax, quiver_points, quiver_vectors, triangle_vertices=t_data['vertices'], 
-                         triangle_area=area, length=0.8 / nquivers, width=0.1 / nquivers)
+        plot_vector_field(
+            ax, quiver_points, quiver_vectors, 
+            triangle_vertices=t_data['vertices'], 
+            triangle_area=area, 
+            length=0.8 / nquivers, 
+            width=0.1 / nquivers
+        )
 
     plot_mesh_edges(ax, vertices, triangles, cochain if highlight_edges else None)
-    
-    # Colorbar
-    ##sm = ScalarMappable(cmap='viridis', norm=norm)
-    ##sm.set_array([])
-    ##cb = plt.colorbar(sm, ax=ax)
-    ##cb.set_label('Magnitude', fontsize=14)
-    
     finalize_plot(fig, ax, vertices, filename)
 
 def load_file(filename, dtype=float):
     with open(filename, 'r') as f:
         return [list(map(dtype, line.strip().split())) for line in f if line.strip()]
 
-def plot_from_files(input_path):
-    import os
-    import glob
+def load_cochain(filename):
+    with open(filename, 'r') as f:
+        return np.array([float(line.strip()) for line in f if line.strip()])
 
-    folder_name = os.path.split(input_path)[-1]
-    
+def load_mesh(input_path):
     vertices = np.array(load_file(f'{input_path}/vertices.coords'), dtype=float)
     triangles = np.array(load_file(f'{input_path}/cells.skel', dtype=int))
-    edges_array = np.array(load_file(f'{input_path}/edges.skel', dtype=int))
+    edges = np.array(load_file(f'{input_path}/edges.skel', dtype=int))
+    return vertices, triangles, edges
+
+def build_cochain_map(edges_array, cochain_values):
+    cochain_map = {}
+    for i, (v0, v1) in enumerate(edges_array):
+        edge = normalize_edge((v0, v1))
+        cochain_map[edge] = cochain_values[i]
+    return cochain_map
+
+def plot_from_files(input_path):
+    folder_name = os.path.basename(input_path)
+    vertices, triangles, edges_array = load_mesh(input_path)
     
     for cochain_path in glob.glob(f'{input_path}/*.cochain'):
         cochain_name = os.path.basename(cochain_path)
-        
-        cochain_list = np.array([float(line.strip()) for line in open(cochain_path) if line.strip()])
-        cochain_map = {}
-        for i, (v0, v1) in enumerate(edges_array):
-            edge = normalize_edge((v0, v1))
-            cochain_map[edge] = cochain_list[i]
+        cochain_values = load_cochain(cochain_path)
+        cochain_map = build_cochain_map(edges_array, cochain_values)
 
         output_file_path = f'out/{folder_name}_{cochain_name}.png'
         plot_cochain(vertices, triangles, cochain_map, output_file_path, True)
 
 def main():
-    import os
-    import sys
-    
     os.makedirs("out", exist_ok=True)
     
     if len(sys.argv) > 1:
