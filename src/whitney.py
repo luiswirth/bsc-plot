@@ -37,11 +37,24 @@ def generate_triangle_grid(vertices, n_points=20):
     
     Args:
         vertices: 3x2 array of triangle vertex coordinates [(x0,y0), (x1,y1), (x2,y2)]
-        n_points: number of points along each edge
+        n_points: number of points along each edge. If n_points is negative, it represents
+                  the desired number of points per unit area (density).
         
     Returns:
         Array of (x,y) points inside the triangle
     """
+    # Calculate triangle area
+    area = compute_triangle_area(vertices)
+    
+    # If n_points is negative, it represents a density (points per unit area)
+    if n_points < 0:
+        density = abs(n_points)
+        # Calculate the appropriate n_points based on density and area
+        # We want roughly density * area total points
+        # The formula below gives approximately n_points²/2 total points
+        n_points = int(np.sqrt(2 * density * area))
+        n_points = max(5, min(80, n_points))  # Increased min from 3 to 5, max from 50 to 80
+    
     # Create evenly spaced points using barycentric coordinates
     points = []
     for i in range(n_points+1):
@@ -326,13 +339,14 @@ def finalize_plot(fig, ax, vertices, filename, title=None, fontsize=20):
     print(f"Figure saved as '{filename}'")
     plt.close(fig)
 
-def plot_vector_field(ax, points, vectors, scale=20, width=0.004):
+def plot_vector_field(ax, points, vectors, triangle_area=None, scale=20, width=0.004):
     """Helper function to plot vector field with normalized directions.
     
     Args:
         ax: matplotlib axis
         points: array of points where vectors are located
         vectors: array of vector components [u, v]
+        triangle_area: optional area of the triangle for adaptive scaling
         scale: scale factor for quiver plot
         width: width of arrows
     """
@@ -344,12 +358,33 @@ def plot_vector_field(ax, points, vectors, scale=20, width=0.004):
         norm_u = np.where(magnitude > 0, u / magnitude, 0)
         norm_v = np.where(magnitude > 0, v / magnitude, 0)
     
-    # Plot vector field
+    # Adjust scale based on triangle area if provided
+    adaptive_scale = scale
+    adaptive_width = width
+    
+    if triangle_area is not None:
+        # Scale factor adjustment based on triangle area
+        # For larger triangles, we want smaller scale (longer arrows)
+        # For smaller triangles, we want larger scale (shorter arrows)
+        area_reference = 0.5  # Reference area for scaling
+        area_factor = np.sqrt(area_reference / triangle_area)
+        
+        # Apply area-based scaling with limits
+        adaptive_scale = max(10, min(40, scale * area_factor))
+        
+        # Also adjust arrow width based on triangle area
+        # Thinner arrows for smaller triangles, thicker for larger ones
+        adaptive_width = max(0.002, min(0.008, width * np.sqrt(triangle_area / area_reference)))
+    
+    # Plot vector field with consistent arrow appearance
     ax.quiver(points[:, 0], points[:, 1], 
               norm_u, norm_v,
-              angles='xy', scale_units='xy', scale=scale, 
+              angles='xy', scale_units='xy', scale=adaptive_scale, 
               pivot='tail', color='white', alpha=0.8, 
-              width=width, headwidth=4, headlength=6)
+              width=adaptive_width,
+              headwidth=3.5,      # Width of arrow head relative to arrow width
+              headlength=3.5,     # Length of arrow head
+              headaxislength=3.0) # Length of arrow head at shaft
 
 def plot_mesh_edges(ax, vertices, triangles, highlight_edges=None):
     """Plot the mesh edges and optionally highlight specific edges.
@@ -440,15 +475,31 @@ def plot_fe_solution(vertices, triangles, edges, coefficients, filename, title=N
     # Create figure
     fig, ax = setup_plot()
     
+    # Calculate mesh statistics for adaptive sampling
+    all_areas = []
+    for triangle in triangles:
+        tri_vertices = vertices[triangle]
+        area = compute_triangle_area(tri_vertices)
+        all_areas.append(area)
+    
+    # Calculate median area for reference
+    median_area = np.median(all_areas) if all_areas else 0.5
+    
     # First pass: compute global min and max magnitude for consistent color scale
     triangle_data = []  # Store data for each triangle to avoid recomputation
     all_magnitudes = []
     
     for t_idx, triangle in enumerate(triangles):
         tri_vertices = vertices[triangle]
+        area = all_areas[t_idx]
         
-        # Generate points inside this triangle
-        tri_points = generate_triangle_grid(tri_vertices, 50)
+        # Calculate sampling density based on triangle area relative to median
+        # For color grid (more dense sampling)
+        density_factor = 200  # Base density per unit area
+        color_points = -density_factor  # Negative indicates density-based sampling
+        
+        # Generate points inside this triangle with adaptive density
+        tri_points = generate_triangle_grid(tri_vertices, color_points)
         x, y = tri_points[:, 0], tri_points[:, 1]
         triang = Triangulation(x, y)
         
@@ -469,7 +520,8 @@ def plot_fe_solution(vertices, triangles, edges, coefficients, filename, title=N
             'vectors': vectors,
             'magnitude': magnitude,
             'gradients': gradients,
-            'triangulation': triang
+            'triangulation': triang,
+            'area': area
         })
     
     # Calculate global magnitude range for color normalization
@@ -495,18 +547,31 @@ def plot_fe_solution(vertices, triangles, edges, coefficients, filename, title=N
     
     # Second pass: plot with consistent color scale
     for t_data in triangle_data:
+        area = t_data['area']
+        
         # Plot magnitude as heatmap using tripcolor with flat shading and global normalization
         ax.tripcolor(t_data['triangulation'], t_data['magnitude'], 
                     cmap='viridis', shading='flat', norm=norm)
         
-        # Add arrows inside this triangle
-        quiver_points = generate_triangle_grid(t_data['vertices'], 10)
-        triangle = t_data['triangle']
-        quiver_vectors = np.array([evaluate_fe_solution([p[0], p[1]], vertices, triangle, coefficients, t_data['gradients']) 
-                                for p in quiver_points])
+        # Calculate quiver density based on triangle area
+        # Adaptive density: fewer points for smaller triangles
+        quiver_density = 150  # Base density per unit area (increased for more arrows)
         
-        # Plot vector field
-        plot_vector_field(ax, quiver_points, quiver_vectors, scale=15, width=0.004)
+        # For quiver plots (less dense sampling, especially for small triangles)
+        # Scale number of points based on ratio to median
+        quiver_points_density = -quiver_density * min(1.5, max(0.5, area / median_area))
+        
+        # Add arrows inside this triangle with adaptive sampling
+        quiver_points = generate_triangle_grid(t_data['vertices'], quiver_points_density)
+        triangle = t_data['triangle']
+        
+        # Skip if too few points
+        if len(quiver_points) > 0:
+            quiver_vectors = np.array([evaluate_fe_solution([p[0], p[1]], vertices, triangle, coefficients, t_data['gradients']) 
+                                    for p in quiver_points])
+            
+            # Plot vector field with adaptive scaling based on triangle area
+            plot_vector_field(ax, quiver_points, quiver_vectors, triangle_area=area)
     
     # Add a colorbar
     from matplotlib.cm import ScalarMappable
@@ -518,26 +583,47 @@ def plot_fe_solution(vertices, triangles, edges, coefficients, filename, title=N
     # Plot mesh edges and highlighted edges
     plot_mesh_edges(ax, vertices, triangles, highlight_edges)
     
+    # Calculate average edge length for adaptive label sizing
+    edge_lengths = []
+    for edge in edges.keys():
+        v1, v2 = edge
+        edge_vec = vertices[v2] - vertices[v1]
+        edge_lengths.append(np.linalg.norm(edge_vec))
+    
+    median_edge_length = np.median(edge_lengths) if edge_lengths else 1.0
+    
     # Add coefficient values as edge labels
-    for edge, coeff in coefficients.items():
-        if abs(coeff) > 1e-10:  # Only label non-zero coefficients
-            # Edge midpoint for label placement
-            v1, v2 = edge
-            mid_x = (vertices[v1][0] + vertices[v2][0]) / 2
-            mid_y = (vertices[v1][1] + vertices[v2][1]) / 2
+    if show_labels:
+        for edge, coeff in coefficients.items():
+            if abs(coeff) > 1e-10:  # Only label non-zero coefficients
+                # Edge midpoint for label placement
+                v1, v2 = edge
+                mid_x = (vertices[v1][0] + vertices[v2][0]) / 2
+                mid_y = (vertices[v1][1] + vertices[v2][1]) / 2
             
-            # Offset label a bit perpendicular to the edge
-            edge_vec = vertices[v2] - vertices[v1]
-            norm_vec = np.array([-edge_vec[1], edge_vec[0]])
-            norm_vec = 0.05 * norm_vec / np.linalg.norm(norm_vec)
+                # Calculate edge length for adaptive label sizing
+                edge_vec = vertices[v2] - vertices[v1]
+                edge_length = np.linalg.norm(edge_vec)
             
-            ax.text(mid_x + norm_vec[0], mid_y + norm_vec[1], 
-                   f'{coeff:.2f}', fontsize=12, ha='center', va='center',
-                   bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
+                # Adaptive font size based on edge length relative to median
+                fontsize = max(8, min(14, 12 * edge_length / median_edge_length))
+            
+                # Adaptive offset based on edge length
+                norm_vec = np.array([-edge_vec[1], edge_vec[0]])
+                offset_factor = min(0.1, max(0.03, 0.05 * edge_length / median_edge_length))
+                norm_vec = offset_factor * norm_vec / np.linalg.norm(norm_vec)
+            
+                ax.text(mid_x + norm_vec[0], mid_y + norm_vec[1], 
+                       f'{coeff:.2f}', fontsize=fontsize, ha='center', va='center',
+                       bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
     
     # Add vertex labels if requested
     if show_labels:
-        add_vertex_labels(ax, vertices)
+        # Calculate adaptive font size based on median edge length
+        label_fontsize = max(10, min(16, 14 * median_edge_length))
+        for i, (x, y) in enumerate(vertices):
+            ax.text(x, y, f'${i}$', fontsize=label_fontsize, ha='center', va='center', 
+                   bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
     
     # Default title if not provided
     default_title = 'Whitney Form Solution' if title is None else title
@@ -709,7 +795,7 @@ def load_mesh_and_cochain(path):
     
     return coords, triangles, edges, coefficients
 
-def plot_from_files(path, output_filename, title=None, show_labels=True):
+def plot_from_files(path, output_filename, title=None, show_labels=False):
     """Load mesh and cochain data from files and plot the corresponding finite element solution.
     
     Args:
