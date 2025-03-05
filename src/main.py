@@ -167,7 +167,8 @@ def plot_mesh_edges(ax, vertices, triangles, cochain_highlight=None):
                 edge_vertices = vertices[[v0, v1]]
                 ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=linewidth)
 
-def plot_whitney_form(vertices, triangles, dof_edge, filename, skip_zero_triangles=False):
+def plot_whitney_form(vertices, triangles, dof_edge, filename, skip_zero_triangles=False,
+                   heatmap_resolution=30, quiver_count=20):
     dof_edge = normalize_edge(dof_edge)
     cochain = {dof_edge: 1.0}
     
@@ -177,7 +178,9 @@ def plot_whitney_form(vertices, triangles, dof_edge, filename, skip_zero_triangl
         cochain=cochain,
         filename=filename,
         highlight_edges=True,
-        skip_zero_triangles=skip_zero_triangles
+        skip_zero_triangles=skip_zero_triangles,
+        heatmap_resolution=heatmap_resolution,
+        quiver_count=quiver_count
     )
 
 def has_nonzero_dofs(triangle, cochain):
@@ -190,7 +193,7 @@ def has_nonzero_dofs(triangle, cochain):
             return True
     return False
 
-def compute_vector_field_data(vertices, triangles, cochain, skip_zero_triangles=False):
+def compute_vector_field_data(vertices, triangles, cochain, skip_zero_triangles=False, heatmap_resolution=30):
     all_areas = [compute_triangle_area(vertices[triangle]) for triangle in triangles]
     triangle_data = []
     all_magnitudes = []
@@ -202,9 +205,8 @@ def compute_vector_field_data(vertices, triangles, cochain, skip_zero_triangles=
             
         tri_vertices = vertices[triangle]
         area = all_areas[t_idx]
-        n_points = 30
         
-        tri_points = generate_triangle_grid(tri_vertices, n_points)
+        tri_points = generate_triangle_grid(tri_vertices, heatmap_resolution)
         x, y = tri_points[:, 0], tri_points[:, 1]
         triang = Triangulation(x, y)
         
@@ -246,12 +248,13 @@ def get_magnitude_range(all_magnitudes):
     
     return min_magnitude, max_magnitude
 
-def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False, skip_zero_triangles=False):
+def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False, 
+               skip_zero_triangles=False, heatmap_resolution=30, quiver_count=20):
     fig, ax = setup_plot()
     
     # Compute vector field data for all triangles
     triangle_data, all_magnitudes = compute_vector_field_data(
-        vertices, triangles, cochain, skip_zero_triangles
+        vertices, triangles, cochain, skip_zero_triangles, heatmap_resolution
     )
     
     if not all_magnitudes:
@@ -272,8 +275,7 @@ def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False, 
             cmap='viridis', shading='flat', norm=norm
         )
         
-        nquivers = 20
-        quiver_points = generate_triangle_grid(t_data['vertices'], nquivers)
+        quiver_points = generate_triangle_grid(t_data['vertices'], quiver_count)
         quiver_vectors = np.array([
             evaluate_cochain([p[0], p[1]], vertices, triangle, cochain, t_data['gradients']) 
             for p in quiver_points
@@ -282,8 +284,8 @@ def plot_cochain(vertices, triangles, cochain, filename, highlight_edges=False, 
             ax, quiver_points, quiver_vectors, 
             triangle_vertices=t_data['vertices'], 
             triangle_area=area, 
-            length=0.8 / nquivers, 
-            width=0.1 / nquivers
+            length=0.8 / quiver_count, 
+            width=0.1 / quiver_count
         )
 
     plot_mesh_edges(ax, vertices, triangles, cochain if highlight_edges else None)
@@ -310,7 +312,8 @@ def build_cochain_map(edges_array, cochain_values):
         cochain_map[edge] = cochain_values[i]
     return cochain_map
 
-def plot_from_files(input_path, skip_zero_triangles=False):
+def plot_from_files(input_path, skip_zero_triangles=False, heatmap_resolution=30, 
+                  quiver_count=20, highlight_edges=True):
     folder_name = os.path.basename(input_path)
     vertices, triangles, edges_array = load_mesh(input_path)
     
@@ -325,8 +328,10 @@ def plot_from_files(input_path, skip_zero_triangles=False):
             triangles, 
             cochain_map, 
             output_file_path, 
-            highlight_edges=True,
-            skip_zero_triangles=skip_zero_triangles
+            highlight_edges=highlight_edges,
+            skip_zero_triangles=skip_zero_triangles,
+            heatmap_resolution=heatmap_resolution,
+            quiver_count=quiver_count
         )
 
 def main():
@@ -337,9 +342,21 @@ def main():
     parser.add_argument('path', help='Path to the input files')
     parser.add_argument('--skip-zero', action='store_true', 
                         help='Skip triangles with all zero DOFs')
+    parser.add_argument('--heatmap-res', type=int, default=30,
+                        help='Resolution of the heatmap (default: 30)')
+    parser.add_argument('--quiver-count', type=int, default=20,
+                        help='Number of quiver arrows per triangle dimension (default: 20)')
+    parser.add_argument('--highlight', action='store_true',
+                        help='Disable highlighting of non-zero DOF edges')
     
     args = parser.parse_args()
-    plot_from_files(args.path, skip_zero_triangles=args.skip_zero)
+    plot_from_files(
+        args.path, 
+        skip_zero_triangles=args.skip_zero,
+        heatmap_resolution=args.heatmap_res,
+        quiver_count=args.quiver_count,
+        highlight_edges=args.highlight
+    )
 
 if __name__ == "__main__":
     main()
