@@ -47,10 +47,18 @@ def barycentric_interpolation(values, nsamples):
 
   return np.array(interpolated_values)
 
+
+# General file loader
+def load_file(filename, dtype=float):
+  with open(filename, 'r') as f:
+    return [list(map(dtype, line.strip().split())) for line in f if line.strip()]
+
+
 # Load data
-coords = np.array(load_file(f'{path}/coords.txt'))
+coords = np.array(load_file(f'{path}/coords.txt'), dtype=float)
 triangles = np.array(load_file(f'{path}/cells.txt', dtype=int))
-vector_field = load_evaluations(f'{path}/evaluations.txt')
+edges = np.array(load_file(f'{path}/edges.txt', dtype=int))
+cochain = np.array(load_file(f'{path}/cochain.txt', dtype=float))
 
 # Plotting the mesh
 fig, ax = plt.subplots(figsize=(10, 8), dpi=300)

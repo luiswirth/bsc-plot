@@ -654,19 +654,109 @@ def plot_example_solutions():
                     title="Linear Combination on Single Triangle",
                     show_labels=False)
 
+# --- File Loading ---
+
+def load_file(filename, dtype=float):
+    """Load data from a file.
+    
+    Args:
+        filename: Path to the file
+        dtype: Data type to convert the values to
+        
+    Returns:
+        List of values from the file, with each line parsed according to dtype
+    """
+    with open(filename, 'r') as f:
+        return [list(map(dtype, line.strip().split())) for line in f if line.strip()]
+
+def load_mesh_and_cochain(path):
+    """Load mesh and cochain data from files.
+    
+    Args:
+        path: Directory containing the mesh files
+        
+    Returns:
+        vertices: Array of vertex coordinates
+        triangles: Array of triangle vertex indices
+        edges: Dictionary mapping edge (v1,v2) to list of adjacent triangle indices
+        cochain: Array of cochain values for each edge
+    """
+    # Load mesh data
+    coords = np.array(load_file(f'{path}/coords.txt'), dtype=float)
+    triangles = np.array(load_file(f'{path}/cells.txt', dtype=int))
+    edges_array = np.array(load_file(f'{path}/edges.txt', dtype=int))
+    
+    # Load cochain data - one coefficient per line
+    cochain_values = np.array([float(line.strip()) for line in open(f'{path}/cochain.txt') 
+                              if line.strip()])
+    
+    # Create edge-to-triangles mapping
+    edges = {}
+    for t_idx, triangle in enumerate(triangles):
+        for i in range(3):
+            v1, v2 = triangle[i], triangle[(i+1)%3]
+            # Ensure edge is stored with normalized indices for consistency
+            edge = normalize_edge((v1, v2))
+            if edge not in edges:
+                edges[edge] = []
+            edges[edge].append(t_idx)
+    
+    # Create coefficients dictionary
+    coefficients = {}
+    for i, (v1, v2) in enumerate(edges_array):
+        edge = normalize_edge((v1, v2))
+        coefficients[edge] = cochain_values[i]
+    
+    return coords, triangles, edges, coefficients
+
+def plot_from_files(path, output_filename, title=None, show_labels=True):
+    """Load mesh and cochain data from files and plot the corresponding finite element solution.
+    
+    Args:
+        path: Directory containing the mesh files
+        output_filename: Name of the output file
+        title: Optional title for the plot
+        show_labels: Whether to show vertex labels
+    """
+    import os
+    # Load mesh and cochain
+    vertices, triangles, edges, coefficients = load_mesh_and_cochain(path)
+    
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_filename), exist_ok=True)
+    
+    # Plot the solution
+    plot_fe_solution(vertices, triangles, edges, coefficients, 
+                    output_filename, title=title, show_labels=show_labels)
+    
+    print(f"Plot created from {path} and saved as {output_filename}")
+
 def main():
     """Main function to create local and global Whitney form plots."""
     import os
+    import sys
+    
+    # Create output directory
     os.makedirs("out", exist_ok=True)
     
-    plot_local_whitneys()
-    print("Local Whitney forms plotted.")
-    
-    plot_global_whitneys()
-    print("Global Whitney forms plotted.")
-    
-    plot_example_solutions()
-    print("Example solutions plotted.")
+    # Check if command line arguments are provided
+    if len(sys.argv) > 1:
+        # If path is provided, load and plot from files
+        path = sys.argv[1]
+        output_file = sys.argv[2] if len(sys.argv) > 2 else "out/cochain_plot.png"
+        title = sys.argv[3] if len(sys.argv) > 3 else "Finite Element Solution"
+        
+        plot_from_files(path, output_file, title)
+    else:
+        # Otherwise, run the default examples
+        plot_local_whitneys()
+        print("Local Whitney forms plotted.")
+        
+        plot_global_whitneys()
+        print("Global Whitney forms plotted.")
+        
+        plot_example_solutions()
+        print("Example solutions plotted.")
 
 if __name__ == "__main__":
     main()
