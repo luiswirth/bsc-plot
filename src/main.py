@@ -298,7 +298,9 @@ def build_cochain_map(edges_array, cochain_values):
 
 def plot_from_files(input_path, skip_zero_triangles=False, heatmap_resolution=30, 
                   quiver_count=20, highlight_edges=True):
+    input_path = input_path.rstrip('/')
     folder_name = os.path.basename(input_path)
+
     vertices, triangles, edges_array = load_mesh(input_path)
     
     for cochain_path in glob.glob(f'{input_path}/*.cochain'):
