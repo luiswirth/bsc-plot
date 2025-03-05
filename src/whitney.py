@@ -72,7 +72,7 @@ def whitney_form(point, vertices, i, j, gradients=None):
     return whitney_vector
 
 def evaluate_cochain(point, vertices, triangle, coefficients, gradients=None):
-    """Evaluate a finite element solution at a point inside a triangle."""
+    """Evaluate a cochain at a point inside a triangle."""
     tri_vertices = vertices[triangle]
     
     if gradients is None:
@@ -121,8 +121,6 @@ def create_equilateral_mesh():
     
     return vertices, triangles
 
-# --- Plotting Functions ---
-
 def setup_plot():
     """Create a new figure with common styling."""
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -146,7 +144,7 @@ def finalize_plot(fig, ax, vertices, filename, fontsize=20):
     print(f"Figure saved as '{filename}'")
     plt.close(fig)
 
-def plot_vector_field(ax, points, vectors, triangle_area, scale=20, width=0.004):
+def plot_vector_field(ax, points, vectors, triangle_vertices, triangle_area, length=0.05, width=0.004):
     u, v = vectors[:, 0], vectors[:, 1]
     
     # normalize vectors
@@ -157,31 +155,35 @@ def plot_vector_field(ax, points, vectors, triangle_area, scale=20, width=0.004)
     
     area_ref = 0.5
     area_factor = np.sqrt(triangle_area / area_ref)
-    scale = scale / area_factor
+    length = length * area_factor
     width = width * area_factor
     
-    ax.quiver(points[:, 0], points[:, 1],
-              u, v,
-              angles='xy', scale_units='xy',
-              pivot='tail', color='white', alpha=1.0,
-              scale=scale, width=width,
-              headwidth=3.5, headlength=3.5, headaxislength=3.0)
+    from matplotlib.patches import Polygon
+    triangle_polygon = Polygon(triangle_vertices, closed=True, fill=False, visible=False)
+    ax.add_patch(triangle_polygon)
+    
+    ax.quiver(
+        points[:, 0], points[:, 1],
+        u, v,
+        angles='xy', scale_units='xy', units='xy',
+        pivot='tail', color='white', alpha=1.0,
+        scale=1/length, width=width,
+        headwidth=3.5, headlength=3.5, headaxislength=3.0,
+        clip_path=triangle_polygon
+    )
 
 def plot_mesh_edges(ax, vertices, triangles, highlight_edges=None):
-    """Plot the mesh edges and optionally highlight specific edges."""
-    # Plot mesh edges
+    linewidth = 2.0
+
     for triangle in triangles:
         tri_vertices = vertices[triangle]
-        # Close the loop
         tri_vertices = np.vstack([tri_vertices, tri_vertices[0]])
-        ax.plot(tri_vertices[:, 0], tri_vertices[:, 1], 'k-', linewidth=1.0)
+        ax.plot(tri_vertices[:, 0], tri_vertices[:, 1], 'k-', linewidth=linewidth)
     
-    # Highlight specific edges if requested
-    if highlight_edges:
-        for edge in highlight_edges:
-            edge = normalize_edge(edge)
-            edge_vertices = vertices[list(edge)]
-            ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=2.5)
+    for edge in highlight_edges:
+        edge = normalize_edge(edge)
+        edge_vertices = vertices[list(edge)]
+        ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=linewidth)
 
 def plot_whitney_form(vertices, triangles, dof_edge, filename):
     dof_edge = normalize_edge(dof_edge)
@@ -266,13 +268,14 @@ def plot_cochain(vertices, triangles, coefficients, filename, highlight_edges=No
             cmap='viridis', shading='flat', norm=norm
         )
         
-        nquivers = 3
+        nquivers = 5
         quiver_points = generate_triangle_grid(t_data['vertices'], nquivers)
         quiver_vectors = np.array([
             evaluate_cochain([p[0], p[1]], vertices, triangle, coefficients, t_data['gradients']) 
             for p in quiver_points
         ])
-        plot_vector_field(ax, quiver_points, quiver_vectors, triangle_area=area, scale=1.25 * nquivers, width=0.06 / nquivers)
+        plot_vector_field(ax, quiver_points, quiver_vectors, triangle_vertices=t_data['vertices'], 
+                         triangle_area=area, length=0.8 / nquivers, width=0.1 / nquivers)
 
     plot_mesh_edges(ax, vertices, triangles, highlight_edges)
     
@@ -283,8 +286,6 @@ def plot_cochain(vertices, triangles, coefficients, filename, highlight_edges=No
     cb.set_label('Magnitude', fontsize=14)
     
     finalize_plot(fig, ax, vertices, filename)
-
-# --- File Loading ---
 
 def load_file(filename, dtype=float):
     with open(filename, 'r') as f:
@@ -309,18 +310,15 @@ def plot_from_files(path, output_filename):
     import os
 
     vertices, triangles, coefficients = load_mesh_and_cochain(path)
-    
     os.makedirs(os.path.dirname(output_filename), exist_ok=True)
-    
-    # Plot the solution
     plot_cochain(vertices, triangles, coefficients, output_filename)
-    
     print(f"Plot created from {path} and saved as {output_filename}")
 
 # --- Example Functions ---
 
 def plot_local_whitneys():
     """Plot local Whitney form basis functions on different triangles."""
+
     # Reference triangle
     ref_triangle = np.array([[0, 0], [1, 0], [0, 1]])
     ref_vertices, ref_triangles = create_singleton_mesh(ref_triangle)
