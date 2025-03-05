@@ -1,61 +1,19 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.tri import Triangulation
-
-# --- Utilities ---
+from matplotlib.colors import Normalize
+from matplotlib.cm import ScalarMappable
 
 def compute_triangle_area(vertices):
-    """Compute the area of a triangle.
-    
-    Args:
-        vertices: 3x2 array of triangle vertex coordinates [(x0,y0), (x1,y1), (x2,y2)]
-        
-    Returns:
-        Area of the triangle
-    """
     x0, y0 = vertices[0]
     x1, y1 = vertices[1]
     x2, y2 = vertices[2]
-    
     return 0.5 * abs((x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0))
 
 def normalize_edge(edge):
-    """Normalize an edge to ensure consistent ordering.
-    
-    Args:
-        edge: tuple (v1,v2) of vertex indices
-        
-    Returns:
-        Sorted tuple (min(v1,v2), max(v1,v2))
-    """
     return tuple(sorted(edge))
 
-# --- Barycentric Coordinates and Triangle Utilities ---
-
-def generate_triangle_grid(vertices, n_points=20):
-    """Generate a grid of points within an arbitrary triangle.
-    
-    Args:
-        vertices: 3x2 array of triangle vertex coordinates [(x0,y0), (x1,y1), (x2,y2)]
-        n_points: number of points along each edge. If n_points is negative, it represents
-                  the desired number of points per unit area (density).
-        
-    Returns:
-        Array of (x,y) points inside the triangle
-    """
-    # Calculate triangle area
-    area = compute_triangle_area(vertices)
-    
-    # If n_points is negative, it represents a density (points per unit area)
-    if n_points < 0:
-        density = abs(n_points)
-        # Calculate the appropriate n_points based on density and area
-        # We want roughly density * area total points
-        # The formula below gives approximately n_points²/2 total points
-        n_points = int(np.sqrt(2 * density * area))
-        n_points = max(5, min(80, n_points))  # Increased min from 3 to 5, max from 50 to 80
-    
-    # Create evenly spaced points using barycentric coordinates
+def generate_triangle_grid(vertices, n_points):
     points = []
     for i in range(n_points+1):
         for j in range(n_points+1-i):
@@ -65,30 +23,16 @@ def generate_triangle_grid(vertices, n_points=20):
             
             x = lambda0 * vertices[0, 0] + lambda1 * vertices[1, 0] + lambda2 * vertices[2, 0]
             y = lambda0 * vertices[0, 1] + lambda1 * vertices[1, 1] + lambda2 * vertices[2, 1]
-            
             points.append([x, y])
     
     return np.array(points)
 
 def compute_barycentric_gradients(vertices):
-    """Compute gradients of barycentric coordinate functions.
-    
-    Args:
-        vertices: 3x2 array of triangle vertex coordinates [(x0,y0), (x1,y1), (x2,y2)]
-        
-    Returns:
-        Array of gradient vectors for each barycentric coordinate function [del_lambda0, del_lambda1, del_lambda2]
-        Each gradient is a vector [dx, dy]
-    """
-    # Extract vertices
+    area = compute_triangle_area(vertices)
     x0, y0 = vertices[0]
     x1, y1 = vertices[1]
     x2, y2 = vertices[2]
-    
-    # Compute area of the triangle
-    area = compute_triangle_area(vertices)
-    
-    # Compute gradients of lambda_i
+        
     grad_lambda0 = np.array([(y1 - y2) / (2 * area), (x2 - x1) / (2 * area)])
     grad_lambda1 = np.array([(y2 - y0) / (2 * area), (x0 - x2) / (2 * area)])
     grad_lambda2 = np.array([(y0 - y1) / (2 * area), (x1 - x0) / (2 * area)])
@@ -96,156 +40,69 @@ def compute_barycentric_gradients(vertices):
     return np.array([grad_lambda0, grad_lambda1, grad_lambda2])
 
 def compute_barycentric_coordinates(point, vertices):
-    """Compute barycentric coordinates for a point in a triangle.
-    
-    Args:
-        point: (x,y) coordinates
-        vertices: 3x2 array of triangle vertex coordinates [(x0,y0), (x1,y1), (x2,y2)]
-        
-    Returns:
-        Array [lambda0, lambda1, lambda2] of barycentric coordinates
-    """
-    # Extract point coordinates
+    """Compute barycentric coordinates for a point in a triangle."""
     x, y = point
     
-    # Extract vertices
+    area = compute_triangle_area(vertices)
     x0, y0 = vertices[0]
     x1, y1 = vertices[1]
     x2, y2 = vertices[2]
-    
-    # Compute area of the triangle
-    area = compute_triangle_area(vertices)
     
     # Compute sub-triangle areas
     area0 = 0.5 * ((x1 - x) * (y2 - y) - (x2 - x) * (y1 - y))
     area1 = 0.5 * ((x2 - x) * (y0 - y) - (x0 - x) * (y2 - y))
     area2 = 0.5 * ((x0 - x) * (y1 - y) - (x1 - x) * (y0 - y))
     
-    # Compute barycentric coordinates
     lambda0 = area0 / area
     lambda1 = area1 / area
     lambda2 = area2 / area
     
     return np.array([lambda0, lambda1, lambda2])
 
-# --- Whitney Form Functions ---
-
 def whitney_form(point, vertices, i, j, gradients=None):
-    """Whitney 1-form lambda_ij = lambda_i * grad(lambda_j) - lambda_j * grad(lambda_i)
-    
-    Args:
-        point: (x,y) coordinates
-        vertices: 3x2 array of triangle vertex coordinates
-        i, j: indices (0,1,2) of the vertices defining the edge
-        gradients: optional precomputed gradients from compute_barycentric_gradients()
-        
-    Returns:
-        2D vector [dx_component, dy_component] of the Whitney form at the point
-    """
+    """Whitney 1-form λᵢⱼ = λᵢ∇λⱼ - λⱼ∇λᵢ"""
     if gradients is None:
         gradients = compute_barycentric_gradients(vertices)
-    
-    # Compute barycentric coordinates
-    lambdas = compute_barycentric_coordinates(point, vertices)
-    
-    # Get the gradients
     grad_i = gradients[i]
     grad_j = gradients[j]
     
-    # Compute Whitney form
-    whitney_vector = lambdas[i] * grad_j - lambdas[j] * grad_i
+    lambdas = compute_barycentric_coordinates(point, vertices)
     
+    whitney_vector = lambdas[i] * grad_j - lambdas[j] * grad_i
     return whitney_vector
 
-def evaluate_fe_solution(point, vertices, triangle, coefficients, gradients=None):
-    """Evaluate a finite element solution at a point inside a triangle.
-    
-    Args:
-        point: (x,y) coordinates
-        vertices: global vertex coordinates
-        triangle: indices of the triangle vertices
-        coefficients: dictionary mapping edge (v1,v2) to coefficient value
-        gradients: optional precomputed gradients for the triangle
-        
-    Returns:
-        2D vector [dx_component, dy_component] of the combined vector field
-    """
-    # Get the triangle vertices
+def evaluate_cochain(point, vertices, triangle, coefficients, gradients=None):
+    """Evaluate a finite element solution at a point inside a triangle."""
     tri_vertices = vertices[triangle]
     
     if gradients is None:
         gradients = compute_barycentric_gradients(tri_vertices)
     
-    # Initialize result vector
-    result = np.zeros(2)
-    
     # Local edges in the triangle (in CCW order)
-    local_edges = [
-        (0, 1),
-        (1, 2),
-        (2, 0)
-    ]
+    # TODO: sus. Should this be [(0,1),(0,2),(1,2)]?
+    local_edges = [(0, 1), (1, 2), (2, 0)]
     
-    # For each local edge, get its global edge and corresponding coefficient
+    result = np.zeros(2)
     for local_i, local_j in local_edges:
-        # Map to global vertex indices
         global_i = triangle[local_i]
         global_j = triangle[local_j]
         
-        # Original orientation of the edge
         original_edge = (global_i, global_j)
-        
-        # Normalize to match the dictionary key format
         global_edge = normalize_edge(original_edge)
+        edge_sign = 1 if original_edge == global_edge else -1
         
-        # If this edge has a coefficient, add its contribution
         if global_edge in coefficients:
             coeff = coefficients[global_edge]
-            
-            # Handle orientation: if the normalized edge reversed the original orientation,
-            # we need to negate the Whitney form
-            edge_orientation = 1
-            if original_edge != global_edge:  # If normalization changed the order
-                edge_orientation = -1
-            
-            # Compute Whitney form for this edge and scale by coefficient
-            w_vector = whitney_form(point, tri_vertices, local_i, local_j, gradients)
-            result += coeff * edge_orientation * w_vector
+            whitney_value = whitney_form(point, tri_vertices, local_i, local_j, gradients)
+            result += edge_sign * coeff * whitney_value
     
     return result
 
-# --- Mesh Creation and Handling ---
+def create_singleton_mesh(vertices):
+    triangles = np.array([[0, 1, 2]])
+    return vertices, triangles
 
-def create_single_triangle_mesh(vertices):
-    """Create a mesh with a single triangle.
-    
-    Args:
-        vertices: 3x2 array of triangle vertex coordinates
-        
-    Returns:
-        vertices: same as input
-        triangles: 1x3 array with indices [0, 1, 2]
-        edges: dict mapping edge (v1,v2) to list of adjacent triangle indices
-    """
-    triangles = np.array([[0, 1, 2]])  # Single triangle
-    
-    # Create edge-to-triangles mapping with normalized edges
-    edges = {
-        normalize_edge((0, 1)): [0],
-        normalize_edge((1, 2)): [0],
-        normalize_edge((0, 2)): [0]
-    }
-    
-    return vertices, triangles, edges
-
-def create_simple_mesh():
-    """Create a simple mesh with 4 triangles.
-    
-    Returns:
-        vertices: Nx2 array of vertex coordinates
-        triangles: Mx3 array of triangle indices
-        edges: dict mapping global edge (v1,v2) to list of adjacent triangle indices
-    """
+def create_equilateral_mesh():
     vertices = np.array([
         [0, 0],                  # center left
         [1, 0],                  # center right
@@ -255,7 +112,6 @@ def create_simple_mesh():
         [0.5, -np.sqrt(3)/2],    # bottom center
     ])
     
-    # Define triangles (as indices into the vertices array)
     triangles = np.array([
         [0, 1, 2],  # center
         [0, 2, 3],  # left
@@ -263,69 +119,20 @@ def create_simple_mesh():
         [0, 1, 5],  # bottom
     ])
     
-    # Create edge-to-triangles mapping
-    edges = {}
-    for t_idx, triangle in enumerate(triangles):
-        for i in range(3):
-            v1, v2 = triangle[i], triangle[(i+1)%3]
-            # Ensure edge is stored with normalized indices for consistency
-            edge = normalize_edge((v1, v2))
-            if edge not in edges:
-                edges[edge] = []
-            edges[edge].append(t_idx)
-    
-    return vertices, triangles, edges
-
-def find_triangle_containing_point(point, vertices, triangles):
-    """Find the triangle containing a given point.
-    
-    Args:
-        point: (x,y) coordinates
-        vertices: global vertex coordinates
-        triangles: triangle indices
-        
-    Returns:
-        Index of the triangle containing the point, or None if not found
-    """
-    for idx, tri in enumerate(triangles):
-        # Get triangle vertices
-        tri_vertices = vertices[tri]
-        
-        # Check if point is inside this triangle
-        lambdas = compute_barycentric_coordinates(point, tri_vertices)
-        if np.all(lambdas >= -1e-10) and np.all(lambdas <= 1 + 1e-10):
-            return idx
-    
-    return None
+    return vertices, triangles
 
 # --- Plotting Functions ---
 
 def setup_plot():
-    """Create and setup a new figure with common styling.
-    
-    Returns:
-        fig, ax: matplotlib figure and axis objects
-    """
+    """Create a new figure with common styling."""
     fig, ax = plt.subplots(figsize=(10, 8))
     ax.set_xlabel('x', fontsize=16)
     ax.set_ylabel('y', fontsize=16)
     ax.set_aspect('equal')
     return fig, ax
 
-def finalize_plot(fig, ax, vertices, filename, title=None, fontsize=20):
-    """Apply final styling to the plot and save it.
-    
-    Args:
-        fig: matplotlib figure
-        ax: matplotlib axis
-        vertices: vertex coordinates used to set axis limits
-        filename: output file name
-        title: optional plot title
-        fontsize: font size for the title
-    """
-    # Set title if provided
-    if title:
-        ax.set_title(title, fontsize=fontsize)
+def finalize_plot(fig, ax, vertices, filename, fontsize=20):
+    """Apply final styling to the plot and save it."""
     
     # Set limits with small margin
     min_x, min_y = np.min(vertices, axis=0)
@@ -339,62 +146,29 @@ def finalize_plot(fig, ax, vertices, filename, title=None, fontsize=20):
     print(f"Figure saved as '{filename}'")
     plt.close(fig)
 
-def plot_vector_field(ax, points, vectors, triangle_area=None, scale=20, width=0.004):
-    """Helper function to plot vector field with normalized directions.
-    
-    Args:
-        ax: matplotlib axis
-        points: array of points where vectors are located
-        vectors: array of vector components [u, v]
-        triangle_area: optional area of the triangle for adaptive scaling
-        scale: scale factor for quiver plot
-        width: width of arrows
-    """
+def plot_vector_field(ax, points, vectors, triangle_area, scale=20, width=0.004):
     u, v = vectors[:, 0], vectors[:, 1]
+    
+    # normalize vectors
     magnitude = np.sqrt(u**2 + v**2)
-    
-    # Normalize for direction
     with np.errstate(divide='ignore', invalid='ignore'):
-        norm_u = np.where(magnitude > 0, u / magnitude, 0)
-        norm_v = np.where(magnitude > 0, v / magnitude, 0)
+        u = np.where(magnitude > 0, u / magnitude, 0)
+        v = np.where(magnitude > 0, v / magnitude, 0)
     
-    # Adjust scale based on triangle area if provided
-    adaptive_scale = scale
-    adaptive_width = width
+    area_ref = 0.5
+    area_factor = np.sqrt(triangle_area / area_ref)
+    scale = scale / area_factor
+    width = width * area_factor
     
-    if triangle_area is not None:
-        # Scale factor adjustment based on triangle area
-        # For larger triangles, we want smaller scale (longer arrows)
-        # For smaller triangles, we want larger scale (shorter arrows)
-        area_reference = 0.5  # Reference area for scaling
-        area_factor = np.sqrt(area_reference / triangle_area)
-        
-        # Apply area-based scaling with limits
-        adaptive_scale = max(10, min(40, scale * area_factor))
-        
-        # Also adjust arrow width based on triangle area
-        # Thinner arrows for smaller triangles, thicker for larger ones
-        adaptive_width = max(0.002, min(0.008, width * np.sqrt(triangle_area / area_reference)))
-    
-    # Plot vector field with consistent arrow appearance
-    ax.quiver(points[:, 0], points[:, 1], 
-              norm_u, norm_v,
-              angles='xy', scale_units='xy', scale=adaptive_scale, 
-              pivot='tail', color='white', alpha=0.8, 
-              width=adaptive_width,
-              headwidth=3.5,      # Width of arrow head relative to arrow width
-              headlength=3.5,     # Length of arrow head
-              headaxislength=3.0) # Length of arrow head at shaft
+    ax.quiver(points[:, 0], points[:, 1],
+              u, v,
+              angles='xy', scale_units='xy',
+              pivot='tail', color='white', alpha=1.0,
+              scale=scale, width=width,
+              headwidth=3.5, headlength=3.5, headaxislength=3.0)
 
 def plot_mesh_edges(ax, vertices, triangles, highlight_edges=None):
-    """Plot the mesh edges and optionally highlight specific edges.
-    
-    Args:
-        ax: matplotlib axis
-        vertices: vertex coordinates
-        triangles: triangle indices
-        highlight_edges: optional list of edges to highlight
-    """
+    """Plot the mesh edges and optionally highlight specific edges."""
     # Plot mesh edges
     for triangle in triangles:
         tri_vertices = vertices[triangle]
@@ -409,106 +183,45 @@ def plot_mesh_edges(ax, vertices, triangles, highlight_edges=None):
             edge_vertices = vertices[list(edge)]
             ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], 'r-', linewidth=2.5)
 
-def add_vertex_labels(ax, vertices):
-    """Add vertex labels to the plot.
+def plot_whitney_form(vertices, triangles, dof_edge, filename):
+    dof_edge = normalize_edge(dof_edge)
     
-    Args:
-        ax: matplotlib axis
-        vertices: vertex coordinates
-    """
-    for i, (x, y) in enumerate(vertices):
-        ax.text(x, y, f'${i}$', fontsize=14, ha='center', va='center', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
-
-def plot_whitney_form(vertices, triangles, edges, edge, filename, title=None, show_labels=True):
-    """Plot a Whitney 1-form across a mesh.
+    coefficients = {}
+    coefficients[dof_edge] = 1.0
     
-    Args:
-        vertices: vertex coordinates
-        triangles: triangle indices
-        edges: mapping from edge (v1,v2) to list of adjacent triangle indices
-        edge: tuple (v1,v2) of vertex indices defining the edge to plot
-        filename: output file name
-        title: optional custom title for the plot
-        show_labels: whether to show vertex labels
-    """
-    # Sort edge vertices for consistency
-    edge = tuple(sorted(edge))
-    
-    # Check if edge exists in mesh
-    if edge not in edges:
-        print(f"Edge {edge} not found in mesh")
-        return
-    
-    # Create a coefficient dictionary with a single non-zero value for the selected edge
-    coefficients = {e: 0.0 for e in edges.keys()}
-    coefficients[edge] = 1.0
-    
-    # Set default title if not provided
-    v1, v2 = edge
-    default_title = f'Whitney Form $\\varphi_{{{v1}{v2}}}$'
-    
-    # Use plot_fe_solution to visualize the Whitney form
-    plot_fe_solution(
+    plot_cochain(
         vertices=vertices,
         triangles=triangles,
-        edges=edges,
         coefficients=coefficients,
         filename=filename,
-        title=title if title else default_title,
-        show_labels=show_labels,
-        highlight_edges=[edge]
+        highlight_edges=[dof_edge]
     )
 
-def plot_fe_solution(vertices, triangles, edges, coefficients, filename, title=None, show_labels=True, highlight_edges=None):
-    """Plot a finite element solution represented as a linear combination of Whitney forms.
-    
-    Args:
-        vertices: vertex coordinates
-        triangles: triangle indices
-        edges: mapping from edge (v1,v2) to list of adjacent triangle indices
-        coefficients: dictionary mapping edge (v1,v2) to coefficient value
-        filename: output file name
-        title: optional custom title for the plot
-        show_labels: whether to show vertex labels
-        highlight_edges: optional list of edges to highlight
-    """
-    # Create figure
+def plot_cochain(vertices, triangles, coefficients, filename, highlight_edges=None):
     fig, ax = setup_plot()
     
-    # Calculate mesh statistics for adaptive sampling
-    all_areas = []
-    for triangle in triangles:
-        tri_vertices = vertices[triangle]
-        area = compute_triangle_area(tri_vertices)
-        all_areas.append(area)
-    
-    # Calculate median area for reference
-    median_area = np.median(all_areas) if all_areas else 0.5
+    all_areas = [compute_triangle_area(vertices[triangle]) for triangle in triangles]
     
     # First pass: compute global min and max magnitude for consistent color scale
-    triangle_data = []  # Store data for each triangle to avoid recomputation
+    triangle_data = []  # Store data for each triangle
     all_magnitudes = []
     
     for t_idx, triangle in enumerate(triangles):
         tri_vertices = vertices[triangle]
         area = all_areas[t_idx]
         
-        # Calculate sampling density based on triangle area relative to median
-        # For color grid (more dense sampling)
-        density_factor = 200  # Base density per unit area
-        color_points = -density_factor  # Negative indicates density-based sampling
+        n_points = 30
         
-        # Generate points inside this triangle with adaptive density
-        tri_points = generate_triangle_grid(tri_vertices, color_points)
+        tri_points = generate_triangle_grid(tri_vertices, n_points)
         x, y = tri_points[:, 0], tri_points[:, 1]
         triang = Triangulation(x, y)
         
-        # Pre-compute gradients for efficiency
         gradients = compute_barycentric_gradients(tri_vertices)
         
-        # Calculate vector field at each point
-        vectors = np.array([evaluate_fe_solution([xi, yi], vertices, triangle, coefficients, gradients) 
-                          for xi, yi in zip(x, y)])
+        vectors = np.array([
+            evaluate_cochain([xi, yi], vertices, triangle, coefficients, gradients) 
+            for xi, yi in zip(x, y)
+        ])
         magnitude = np.sqrt(vectors[:, 0]**2 + vectors[:, 1]**2)
         all_magnitudes.extend(magnitude)
         
@@ -524,325 +237,174 @@ def plot_fe_solution(vertices, triangles, edges, coefficients, filename, title=N
             'area': area
         })
     
-    # Calculate global magnitude range for color normalization
-    min_magnitude = min(all_magnitudes) if all_magnitudes else 0
-    max_magnitude = max(all_magnitudes) if all_magnitudes else 1
+    min_magnitude = min(all_magnitudes)
+    max_magnitude = max(all_magnitudes)
     
-    # Ensure a minimum range to avoid artifacts in constant fields
-    # If range is too small, expand it artificially
     magnitude_range = max_magnitude - min_magnitude
+
+    # Ensure a minimum range to avoid artifacts in constant fields
     if magnitude_range < 1e-6:
-        # For nearly constant fields, create an artificial range
         mean_magnitude = (max_magnitude + min_magnitude) / 2
-        min_magnitude = mean_magnitude * 0.95  # 5% below mean
-        max_magnitude = mean_magnitude * 1.05  # 5% above mean
+        min_magnitude = mean_magnitude * 0.95
+        max_magnitude = mean_magnitude * 1.05
         
-        if abs(mean_magnitude) < 1e-10:  # If magnitude is essentially zero
+        # If magnitude is essentially zero
+        if abs(mean_magnitude) < 1e-10:
             min_magnitude = 0
             max_magnitude = 1e-6
     
-    # Import color normalization for consistent coloring
-    from matplotlib.colors import Normalize
+    # Create color normalization for consistent coloring
     norm = Normalize(vmin=min_magnitude, vmax=max_magnitude)
     
     # Second pass: plot with consistent color scale
     for t_data in triangle_data:
+        triangle = t_data['triangle']
         area = t_data['area']
         
-        # Plot magnitude as heatmap using tripcolor with flat shading and global normalization
-        ax.tripcolor(t_data['triangulation'], t_data['magnitude'], 
-                    cmap='viridis', shading='flat', norm=norm)
+        ax.tripcolor(
+            t_data['triangulation'], t_data['magnitude'], 
+            cmap='viridis', shading='flat', norm=norm
+        )
         
-        # Calculate quiver density based on triangle area
-        # Adaptive density: fewer points for smaller triangles
-        quiver_density = 150  # Base density per unit area (increased for more arrows)
-        
-        # For quiver plots (less dense sampling, especially for small triangles)
-        # Scale number of points based on ratio to median
-        quiver_points_density = -quiver_density * min(1.5, max(0.5, area / median_area))
-        
-        # Add arrows inside this triangle with adaptive sampling
-        quiver_points = generate_triangle_grid(t_data['vertices'], quiver_points_density)
-        triangle = t_data['triangle']
-        
-        # Skip if too few points
-        if len(quiver_points) > 0:
-            quiver_vectors = np.array([evaluate_fe_solution([p[0], p[1]], vertices, triangle, coefficients, t_data['gradients']) 
-                                    for p in quiver_points])
-            
-            # Plot vector field with adaptive scaling based on triangle area
-            plot_vector_field(ax, quiver_points, quiver_vectors, triangle_area=area)
+        nquivers = 3
+        quiver_points = generate_triangle_grid(t_data['vertices'], nquivers)
+        quiver_vectors = np.array([
+            evaluate_cochain([p[0], p[1]], vertices, triangle, coefficients, t_data['gradients']) 
+            for p in quiver_points
+        ])
+        plot_vector_field(ax, quiver_points, quiver_vectors, triangle_area=area, scale=1.25 * nquivers, width=0.06 / nquivers)
+
+    plot_mesh_edges(ax, vertices, triangles, highlight_edges)
     
-    # Add a colorbar
-    from matplotlib.cm import ScalarMappable
+    # Colorbar
     sm = ScalarMappable(cmap='viridis', norm=norm)
     sm.set_array([])
     cb = plt.colorbar(sm, ax=ax)
     cb.set_label('Magnitude', fontsize=14)
     
-    # Plot mesh edges and highlighted edges
-    plot_mesh_edges(ax, vertices, triangles, highlight_edges)
-    
-    # Calculate average edge length for adaptive label sizing
-    edge_lengths = []
-    for edge in edges.keys():
-        v1, v2 = edge
-        edge_vec = vertices[v2] - vertices[v1]
-        edge_lengths.append(np.linalg.norm(edge_vec))
-    
-    median_edge_length = np.median(edge_lengths) if edge_lengths else 1.0
-    
-    # Add coefficient values as edge labels
-    if show_labels:
-        for edge, coeff in coefficients.items():
-            if abs(coeff) > 1e-10:  # Only label non-zero coefficients
-                # Edge midpoint for label placement
-                v1, v2 = edge
-                mid_x = (vertices[v1][0] + vertices[v2][0]) / 2
-                mid_y = (vertices[v1][1] + vertices[v2][1]) / 2
-            
-                # Calculate edge length for adaptive label sizing
-                edge_vec = vertices[v2] - vertices[v1]
-                edge_length = np.linalg.norm(edge_vec)
-            
-                # Adaptive font size based on edge length relative to median
-                fontsize = max(8, min(14, 12 * edge_length / median_edge_length))
-            
-                # Adaptive offset based on edge length
-                norm_vec = np.array([-edge_vec[1], edge_vec[0]])
-                offset_factor = min(0.1, max(0.03, 0.05 * edge_length / median_edge_length))
-                norm_vec = offset_factor * norm_vec / np.linalg.norm(norm_vec)
-            
-                ax.text(mid_x + norm_vec[0], mid_y + norm_vec[1], 
-                       f'{coeff:.2f}', fontsize=fontsize, ha='center', va='center',
-                       bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
-    
-    # Add vertex labels if requested
-    if show_labels:
-        # Calculate adaptive font size based on median edge length
-        label_fontsize = max(10, min(16, 14 * median_edge_length))
-        for i, (x, y) in enumerate(vertices):
-            ax.text(x, y, f'${i}$', fontsize=label_fontsize, ha='center', va='center', 
-                   bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=3))
-    
-    # Default title if not provided
-    default_title = 'Whitney Form Solution' if title is None else title
-    
-    # Finalize and save plot
-    finalize_plot(fig, ax, vertices, filename, default_title)
-
-# --- Main Functions ---
-
-def plot_local_whitneys():
-    """Plot local Whitney form basis functions on different triangles."""
-    # Reference triangle
-    ref_triangle = np.array([[0, 0], [1, 0], [0, 1]])
-    ref_vertices, ref_triangles, ref_edges = create_single_triangle_mesh(ref_triangle)
-    
-    plot_whitney_form(ref_vertices, ref_triangles, ref_edges, (0, 1), 
-                      "out/ref_phi01.png", show_labels=False)
-    plot_whitney_form(ref_vertices, ref_triangles, ref_edges, (0, 2), 
-                      "out/ref_phi02.png", show_labels=False)
-    plot_whitney_form(ref_vertices, ref_triangles, ref_edges, (1, 2), 
-                      "out/ref_phi12.png", show_labels=False)
-    
-    # Equilateral triangle
-    eq_triangle = np.array([[0, 0], [1, 0], [0.5, np.sqrt(3)/2]])
-    eq_vertices, eq_triangles, eq_edges = create_single_triangle_mesh(eq_triangle)
-    
-    plot_whitney_form(eq_vertices, eq_triangles, eq_edges, (0, 1), 
-                      "out/eq_phi01.png", show_labels=False)
-    plot_whitney_form(eq_vertices, eq_triangles, eq_edges, (0, 2), 
-                      "out/eq_phi02.png", show_labels=False)
-    plot_whitney_form(eq_vertices, eq_triangles, eq_edges, (1, 2), 
-                      "out/eq_phi12.png", show_labels=False)
-
-def plot_global_whitneys():
-    """Plot global Whitney form basis functions on a simple mesh."""
-    # Create simple mesh
-    vertices, triangles, edges = create_simple_mesh()
-    
-    # Plot global Whitney forms for different edges
-    plot_whitney_form(vertices, triangles, edges, (0, 1), "out/mesh_phi01.png")
-    plot_whitney_form(vertices, triangles, edges, (0, 2), "out/mesh_phi02.png")
-    plot_whitney_form(vertices, triangles, edges, (1, 2), "out/mesh_phi12.png")
-
-def plot_example_solutions():
-    """Plot example finite element solutions."""
-    # Create simple mesh
-    vertices, triangles, edges = create_simple_mesh()
-    
-    # Example 1: Constant vector field pointing to the right
-    coefficients1 = {
-        (0, 1): +1.0,    # Horizontal edge in bottom triangle
-        (0, 2): +0.5,    # Edge from bottom-left to top
-        (1, 2): -0.5,    # Edge from bottom-right to top
-        (0, 3): -0.5,    # Left edge
-        (2, 3): -1.0,    # Upper left edge
-        (1, 4): +0.5,    # Right edge
-        (2, 4): +1.0,    # Upper right edge
-        (0, 5): +0.5,    # Bottom left edge
-        (1, 5): -0.5,    # Bottom right edge
-    }
-    
-    plot_fe_solution(vertices, triangles, edges, coefficients1, 
-                    "out/solution_constant.png", 
-                    title="Constant Vector Field")
-    
-    # Example 2: Rotational vector field
-    coefficients2 = {
-        (0, 1): +1.0,    # Horizontal edge in center triangle
-        (0, 2): -1.0,    # Edge from center-left to top
-        (1, 2): +1.0,    # Edge from center-right to top
-        (0, 3): -1.0,    # Left edge
-        (2, 3): +1.0,   # Upper left edge
-        (1, 4): +1.0,   # Right edge
-        (2, 4): -1.0,    # Upper right edge
-        (0, 5): +1.0,   # Bottom left edge
-        (1, 5): -1.0,    # Bottom right edge
-    }
-    
-    plot_fe_solution(vertices, triangles, edges, coefficients2, 
-                    "out/solution_rotation.png", 
-                    title="Rotational Vector Field")
-    
-    # Example 3: Divergent vector field from center
-    coefficients3 = {
-        (0, 1): +0.0,    # Horizontal edge in center triangle
-        (0, 2): +0.0,    # Edge from center-left to top
-        (1, 2): +0.0,    # Edge from center-right to top
-        (0, 3): +0.5,   # Left edge
-        (2, 3): +0.5,    # Upper left edge
-        (1, 4): +0.5,    # Right edge
-        (2, 4): +0.5,    # Upper right edge
-        (0, 5): +0.5,    # Bottom left edge
-        (1, 5): +0.5,    # Bottom right edge
-    }
-    
-    plot_fe_solution(vertices, triangles, edges, coefficients3, 
-                    "out/solution_divergent.png", 
-                    title="Divergent Vector Field",
-                    highlight_edges=[(0, 1), (0, 2), (1, 2)])
-    
-    # Example 4: Local solution on a single triangle
-    eq_triangle = np.array([[0, 0], [1, 0], [0.5, np.sqrt(3)/2]])
-    eq_vertices, eq_triangles, eq_edges = create_single_triangle_mesh(eq_triangle)
-    
-    # Simple linear combination of basis functions
-    local_coefficients = {
-        (0, 1): +1.0,
-        (1, 2): +1.0,
-        (0, 2): -1.0,
-    }
-    
-    plot_fe_solution(eq_vertices, eq_triangles, eq_edges, local_coefficients,
-                    "out/solution_local.png",
-                    title="Linear Combination on Single Triangle",
-                    show_labels=False)
+    finalize_plot(fig, ax, vertices, filename)
 
 # --- File Loading ---
 
 def load_file(filename, dtype=float):
-    """Load data from a file.
-    
-    Args:
-        filename: Path to the file
-        dtype: Data type to convert the values to
-        
-    Returns:
-        List of values from the file, with each line parsed according to dtype
-    """
     with open(filename, 'r') as f:
         return [list(map(dtype, line.strip().split())) for line in f if line.strip()]
 
 def load_mesh_and_cochain(path):
-    """Load mesh and cochain data from files.
-    
-    Args:
-        path: Directory containing the mesh files
-        
-    Returns:
-        vertices: Array of vertex coordinates
-        triangles: Array of triangle vertex indices
-        edges: Dictionary mapping edge (v1,v2) to list of adjacent triangle indices
-        cochain: Array of cochain values for each edge
-    """
-    # Load mesh data
     coords = np.array(load_file(f'{path}/coords.txt'), dtype=float)
     triangles = np.array(load_file(f'{path}/cells.txt', dtype=int))
     edges_array = np.array(load_file(f'{path}/edges.txt', dtype=int))
     
-    # Load cochain data - one coefficient per line
     cochain_values = np.array([float(line.strip()) for line in open(f'{path}/cochain.txt') 
                               if line.strip()])
     
-    # Create edge-to-triangles mapping
-    edges = {}
-    for t_idx, triangle in enumerate(triangles):
-        for i in range(3):
-            v1, v2 = triangle[i], triangle[(i+1)%3]
-            # Ensure edge is stored with normalized indices for consistency
-            edge = normalize_edge((v1, v2))
-            if edge not in edges:
-                edges[edge] = []
-            edges[edge].append(t_idx)
-    
-    # Create coefficients dictionary
     coefficients = {}
     for i, (v1, v2) in enumerate(edges_array):
         edge = normalize_edge((v1, v2))
         coefficients[edge] = cochain_values[i]
     
-    return coords, triangles, edges, coefficients
+    return coords, triangles, coefficients
 
-def plot_from_files(path, output_filename, title=None, show_labels=False):
-    """Load mesh and cochain data from files and plot the corresponding finite element solution.
-    
-    Args:
-        path: Directory containing the mesh files
-        output_filename: Name of the output file
-        title: Optional title for the plot
-        show_labels: Whether to show vertex labels
-    """
+def plot_from_files(path, output_filename):
     import os
-    # Load mesh and cochain
-    vertices, triangles, edges, coefficients = load_mesh_and_cochain(path)
+
+    vertices, triangles, coefficients = load_mesh_and_cochain(path)
     
-    # Ensure output directory exists
     os.makedirs(os.path.dirname(output_filename), exist_ok=True)
     
     # Plot the solution
-    plot_fe_solution(vertices, triangles, edges, coefficients, 
-                    output_filename, title=title, show_labels=show_labels)
+    plot_cochain(vertices, triangles, coefficients, output_filename)
     
     print(f"Plot created from {path} and saved as {output_filename}")
 
+# --- Example Functions ---
+
+def plot_local_whitneys():
+    """Plot local Whitney form basis functions on different triangles."""
+    # Reference triangle
+    ref_triangle = np.array([[0, 0], [1, 0], [0, 1]])
+    ref_vertices, ref_triangles = create_singleton_mesh(ref_triangle)
+    plot_whitney_form(ref_vertices, ref_triangles, (0, 1), "out/ref_phi01.png")
+    plot_whitney_form(ref_vertices, ref_triangles, (0, 2), "out/ref_phi02.png")
+    plot_whitney_form(ref_vertices, ref_triangles, (1, 2), "out/ref_phi12.png")
+    
+    # Equilateral triangle
+    eq_triangle = np.array([[0, 0], [1, 0], [0.5, np.sqrt(3)/2]])
+    eq_vertices, eq_triangles = create_singleton_mesh(eq_triangle)
+    plot_whitney_form(eq_vertices, eq_triangles, (0, 1), "out/eq_phi01.png")
+    plot_whitney_form(eq_vertices, eq_triangles, (0, 2), "out/eq_phi02.png")
+    plot_whitney_form(eq_vertices, eq_triangles, (1, 2), "out/eq_phi12.png")
+
+def plot_global_whitneys():
+    vertices, triangles = create_equilateral_mesh()
+    plot_whitney_form(vertices, triangles, (0, 1), "out/mesh_phi01.png")
+    plot_whitney_form(vertices, triangles, (0, 2), "out/mesh_phi02.png")
+    plot_whitney_form(vertices, triangles, (1, 2), "out/mesh_phi12.png")
+
+def plot_example_cochains():
+    vertices, triangles = create_equilateral_mesh()
+    
+    # Example 1: Constant vector field pointing to the right
+    coefficients1 = {
+        (0, 1): +1.0,
+        (0, 2): +0.5,
+        (1, 2): -0.5,
+        (0, 3): -0.5,
+        (2, 3): -1.0,
+        (1, 4): +0.5,
+        (2, 4): +1.0,
+        (0, 5): +0.5,
+        (1, 5): -0.5,
+    }
+    plot_cochain(vertices, triangles, coefficients1, "out/solution_constant.png")
+    
+    # Example 2: Rotational vector field
+    coefficients2 = {
+        (0, 1): +1.0,
+        (0, 2): -1.0,
+        (1, 2): +1.0,
+        (0, 3): -1.0,
+        (2, 3): +1.0,
+        (1, 4): +1.0,
+        (2, 4): -1.0,
+        (0, 5): +1.0,
+        (1, 5): -1.0,
+    }
+    plot_cochain(vertices, triangles, coefficients2, "out/solution_rotation.png")
+    
+    # Example 3: Divergent vector field from center
+    coefficients3 = {
+        (0, 1): +0.0,
+        (0, 2): +0.0,
+        (1, 2): +0.0,
+        (0, 3): +0.5,
+        (2, 3): +0.5,
+        (1, 4): +0.5,
+        (2, 4): +0.5,
+        (0, 5): +0.5,
+        (1, 5): +0.5,
+    }
+    plot_cochain(
+        vertices, triangles, coefficients3,
+        "out/solution_divergent.png",
+        highlight_edges=[(0, 1), (0, 2), (1, 2)]
+    )
+
 def main():
-    """Main function to create local and global Whitney form plots."""
     import os
     import sys
     
-    # Create output directory
     os.makedirs("out", exist_ok=True)
     
-    # Check if command line arguments are provided
     if len(sys.argv) > 1:
-        # If path is provided, load and plot from files
         path = sys.argv[1]
-        output_file = sys.argv[2] if len(sys.argv) > 2 else "out/cochain_plot.png"
-        title = sys.argv[3] if len(sys.argv) > 3 else "Finite Element Solution"
+        output_file = sys.argv[2] if len(sys.argv) > 2 else "out/cochain.png"
         
-        plot_from_files(path, output_file, title)
+        plot_from_files(path, output_file)
     else:
-        # Otherwise, run the default examples
         plot_local_whitneys()
-        print("Local Whitney forms plotted.")
-        
         plot_global_whitneys()
-        print("Global Whitney forms plotted.")
-        
-        plot_example_solutions()
-        print("Example solutions plotted.")
+        plot_example_cochains()
 
 if __name__ == "__main__":
     main()
